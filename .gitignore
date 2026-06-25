@@ -1,0 +1,44 @@
+# env
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
+CLAUDE.md
+files/
+notebooks/.ipynb_checkpoints/
+
+# editor / local tooling
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# test / build caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# cached data artifacts (rebuild with `make data`)
+data/twin_cube.nc
+data/norm_stats.json
+data/insat_lst.nc
+data/raw/
+data/*.nc
+data/*.json
+
+# model artifacts
+models/checkpoints/
+models/validation_metrics.json
+models/*.pt
+models/*.pth
+models/*.ckpt
+
+# frontend
+node_modules/
+frontend/dist/
+
+# archives / bundles
+*.zip

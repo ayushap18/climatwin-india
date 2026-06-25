@@ -1,0 +1,40 @@
+# ClimaTwin India — Python deps.  Target interpreter: Python 3.13
+# (TensorFlow has no 3.14 wheels; 3.13 has wheels for BOTH torch and tensorflow.)
+#   python3.13 -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+
+# --- core data / science ---
+numpy==2.5.0
+pandas==3.0.3
+scipy==1.18.0
+scikit-learn==1.9.0
+
+# --- geo / climate data ---
+xarray==2026.4.0
+netCDF4==1.7.4
+cftime==1.6.5
+h5py==3.14.0
+rioxarray==0.22.0
+rasterio==1.5.0
+geopandas==1.1.3
+pyproj==3.7.2
+shapely==2.1.2
+imdlib==0.1.21        # IMD gridded rainfall/temperature (headless HTTP)
+
+# --- deep learning (PyTorch is the default core; TF available too) ---
+torch==2.12.1
+torchvision==0.27.1
+tensorflow==2.21.0
+keras==3.15.0
+
+# --- backend ---
+fastapi==0.138.1
+uvicorn[standard]==0.49.0
+pydantic==2.13.4
+pydantic-settings==2.14.2
+python-multipart==0.0.32
+
+# --- viz / utils ---
+matplotlib==3.11.0
+requests==2.34.2
+tqdm==4.68.3
