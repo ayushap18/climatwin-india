@@ -94,21 +94,3 @@ A short 15-epoch local run (full training is the Colab notebook). RMSE, **best i
 ConvLSTM **wins rainfall at every horizon and all three variables at 1-day**; climatology
 still wins temperature at long lead (expected for a short run — the full GPU run closes it).
 SR-CNN downscaler beats bilinear by **13.9%** on the rainfall test split.
-
-## Honesty notes (CLAUDE.md §2.8)
-
-- **Data provenance is surfaced in every response.** Default build is real **IMD** rainfall+temp
-  (`data_source="imd"`); the INSAT **LST layer is `synthetic_demo`** (offline, plausible, tagged)
-  until MOSDAC credentials are added — the real `mdapi` HDF5 ingestion path is built and ready.
-- The **ConvLSTM is the default** behind `/forecast`; skill is always reported **relative to
-  persistence/climatology baselines** — no skill claim without that comparison.
-- Assimilation is a **simplified nudging** scheme (not variational/Kalman); the SR-CNN at
-  0.25°/9×13 is an honest **method demonstrator** that scales with the region; elevation is a
-  placeholder until CartoDEM. Limitations are stated, metrics are never fabricated.
-
-## Next steps
-
-Frontend (React + Vite + Leaflet): map + layer switch + time slider (past obs → forecast +
-uncertainty band) + what-if panel (ΔTemp/rain sliders, draw-urban-area → diff map + impact
-badges) + validation tab. Then: real MOSDAC INSAT granules, CartoDEM elevation, full Colab GPU
-training. See `files/implementation.md`.
