@@ -137,6 +137,17 @@ export default function Downscale() {
             2 · upsample back two ways — bilinear vs a trained SR-CNN.<br />
             3 · score each against the truth; lower RMSE wins.
           </div>
+          {meta?.highres_available && (
+            <div className="rounded-md border border-saffron/30 bg-saffron/5 px-2.5 py-2 font-mono text-[9px] leading-relaxed text-muted/90">
+              <div className="mb-1 text-saffron">validated vs real 5 km truth (INDmet 0.05°)</div>
+              A deterministic 0.25°→0.05° SR-CNN, scored against genuine high-res data, recovers{' '}
+              <span className="text-online">~1.7× more fine-scale texture</span> than bilinear (41% vs
+              24% of the real structure) but <span className="text-danger">loses ~7% on RMSE</span> —
+              the classic “double-penalty”: sharp detail placed slightly wrong is punished twice. This
+              is exactly why SOTA downscaling (NVIDIA CorrDiff) uses <span className="text-isro">generative
+              diffusion</span> and spatial/spectral skill (FSS, power-spectra, CRPS), not RMSE.
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl border border-line bg-panel/40">

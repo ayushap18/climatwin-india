@@ -36,12 +36,30 @@ export interface Meta {
   lst_source: string | null
   has_lst: boolean
   downscale_available: boolean
+  highres_available: boolean
+  highres_res: number | null
+  highres_vars: VarName[]
+  highres_shape: [number, number] | null
   max_horizon: number
   thresholds: {
     wet_day_mm: number
     heat_stress_tmax_c: number
     sowing_onset_mm: number
   }
+}
+
+export interface HighresResp {
+  date: string
+  var: VarName
+  data_source: string
+  res_deg: number
+  lat: number[]
+  lon: number[]
+  shape: [number, number]
+  unit: string
+  field: number[][]
+  range: [number, number]
+  note: string
 }
 
 export type Fields = Record<VarName, number[][]>
