@@ -1,26 +1,38 @@
-// GridLayer.tsx — the 9×13 Delhi-NCR data grid as colored Leaflet rectangles. Each cell
-// is colored by the active variable (blue→saffron via the variable colormap), shows a
-// hover tooltip, and selects on click. The selected cell gets a saffron outline.
+// GridLayer.tsx — the 9×13 Delhi-NCR data grid as colored Leaflet rectangles. Colored by
+// the active variable (blue→saffron via the variable colormap); hover tooltip; click to
+// select. The selected cell gets a saffron outline. Fields come from the active timeline
+// frame (observed /state or a /forecast day), so this takes a raw field array.
 
 import { Rectangle, Tooltip } from 'react-leaflet'
 import type { VarName } from '../../api/types'
 import { colorForValue } from '../../lib/colormaps'
 import { cellsFor, type Cell } from '../../lib/grid'
-import type { StateResp } from '../../api/types'
 import { COLORS } from '../../theme'
 
 interface Props {
-  state: StateResp
+  field: number[][]
+  lat: number[]
+  lon: number[]
   variable: VarName
+  unit: string
   range: [number, number]
   res: number
   selected: { row: number; col: number } | null
   onSelect: (cell: { row: number; col: number }) => void
 }
 
-export default function GridLayer({ state, variable, range, res, selected, onSelect }: Props) {
-  const cells = cellsFor(state, variable, res)
-  const unit = state.units[variable] ?? ''
+export default function GridLayer({
+  field,
+  lat,
+  lon,
+  variable,
+  unit,
+  range,
+  res,
+  selected,
+  onSelect,
+}: Props) {
+  const cells = cellsFor(field, lat, lon, res)
 
   return (
     <>
