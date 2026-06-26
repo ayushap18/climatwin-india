@@ -134,3 +134,55 @@ export interface WhatIfResp {
   sowing_baseline: SowingWindow
   sowing_scenario: SowingWindow
 }
+
+export interface CategoricalMetrics {
+  POD: number
+  FAR: number
+  CSI: number
+  hits: number
+  misses: number
+  false_alarms: number
+}
+
+export interface VarMetrics {
+  RMSE: number
+  MAE: number
+  corr: number
+  categorical?: CategoricalMetrics
+}
+
+export interface ModelMetrics {
+  rainfall: VarMetrics
+  tmax: VarMetrics
+  tmin: VarMetrics
+  error_map_tmax_rmse: number[][]
+}
+
+export interface ValidateResp {
+  data_source: string
+  split: Record<string, [number, number]>
+  wet_day_threshold_mm: number
+  note: string
+  lat: number[]
+  lon: number[]
+  horizons: Record<string, Record<string, ModelMetrics>>
+  // summary_rmse[horizon][var] = { `${model}_RMSE`: number, best: string }
+  summary_rmse: Record<string, Record<string, Record<string, number | string>>>
+  models: string[]
+}
+
+export interface DownscaleResp {
+  var: string
+  date: string
+  downscale_var: string
+  factor: number
+  lat: number[]
+  lon: number[]
+  coarse: number[][]
+  bilinear: number[][]
+  srcnn: number[][]
+  bilinear_rmse: number | null
+  srcnn_rmse: number | null
+  improvement_pct: number | null
+  data_source: string
+}

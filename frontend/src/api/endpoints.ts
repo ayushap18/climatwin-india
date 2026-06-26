@@ -3,7 +3,16 @@
 
 import { apiFetch, twinBus } from './client'
 import { cacheGet, cacheKey, cacheSet } from './cache'
-import type { ForecastResp, Health, Meta, StateResp, WhatIfParams, WhatIfResp } from './types'
+import type {
+  DownscaleResp,
+  ForecastResp,
+  Health,
+  Meta,
+  StateResp,
+  ValidateResp,
+  WhatIfParams,
+  WhatIfResp,
+} from './types'
 
 export async function getHealth(): Promise<Health> {
   const key = cacheKey('/health')
@@ -57,4 +66,20 @@ export async function postWhatIf(body: WhatIfParams): Promise<WhatIfResp> {
   window.setTimeout(() => twinBus.emit('SIMULATE'), 220)
   window.setTimeout(() => twinBus.emit('IMPACT'), 440)
   return cacheSet(key, await apiFetch<WhatIfResp>('/whatif', { method: 'POST', body }))
+}
+
+export async function getValidate(): Promise<ValidateResp> {
+  const key = cacheKey('/validate')
+  const hit = cacheGet<ValidateResp>(key)
+  if (hit) return hit
+  return cacheSet(key, await apiFetch<ValidateResp>('/validate', { stage: 'IMPACT' }))
+}
+
+export async function getDownscale(date?: string, varName = 'rainfall'): Promise<DownscaleResp> {
+  const key = cacheKey('/downscale', { date, var: varName })
+  const hit = cacheGet<DownscaleResp>(key)
+  if (hit) return hit
+  const params = new URLSearchParams({ var: varName })
+  if (date) params.set('date', date)
+  return cacheSet(key, await apiFetch<DownscaleResp>(`/downscale?${params.toString()}`))
 }
