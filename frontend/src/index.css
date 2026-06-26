@@ -108,6 +108,26 @@ body {
   animation: ct-flow 2.6s linear infinite;
 }
 
+/* --- skeleton shimmer loaders --- */
+@keyframes ct-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.ct-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(120, 140, 180, 0.05) 25%,
+    rgba(120, 140, 180, 0.14) 37%,
+    rgba(120, 140, 180, 0.05) 63%
+  );
+  background-size: 200% 100%;
+  animation: ct-shimmer 1.5s ease-in-out infinite;
+}
+
 /* --- heat-stress cell pulse (Leaflet path) --- */
 @keyframes ct-heat {
   0%,

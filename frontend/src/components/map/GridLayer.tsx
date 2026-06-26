@@ -20,6 +20,7 @@ interface Props {
   res: number
   contrast?: number
   pulseAbove?: number // cells whose value exceeds this gently pulse (e.g. heat-stress Tmax)
+  seriesFor?: (row: number, col: number) => number[] // per-cell timeline series → hover sparkline
   selected: { row: number; col: number } | null
   onSelect: (cell: { row: number; col: number }) => void
 }
@@ -34,6 +35,7 @@ export default function GridLayer({
   res,
   contrast = 1,
   pulseAbove,
+  seriesFor,
   selected,
   onSelect,
 }: Props) {
@@ -67,11 +69,37 @@ export default function GridLayer({
                 <span className="opacity-70">
                   {c.lat.toFixed(2)}°N, {c.lon.toFixed(2)}°E
                 </span>
+                {seriesFor && <Sparkline values={seriesFor(c.i, c.j)} />}
               </span>
             </Tooltip>
           </Rectangle>
         )
       })}
     </>
+  )
+}
+
+/** A tiny inline sparkline of a cell's series across the timeline (past → forecast). */
+function Sparkline({ values }: { values: number[] }) {
+  const xs = values.filter((v) => Number.isFinite(v))
+  if (xs.length < 2) return null
+  const w = 96
+  const h = 22
+  const min = Math.min(...xs)
+  const max = Math.max(...xs)
+  const span = max - min || 1
+  const pts = xs
+    .map((v, i) => `${(i / (xs.length - 1)) * w},${h - ((v - min) / span) * (h - 3) - 1.5}`)
+    .join(' ')
+  return (
+    <svg width={w} height={h} className="mt-1 block" style={{ overflow: 'visible' }}>
+      <polyline points={pts} fill="none" stroke="#2b6cff" strokeWidth={1.5} />
+      <circle
+        cx={w}
+        cy={h - ((xs[xs.length - 1] - min) / span) * (h - 3) - 1.5}
+        r={1.8}
+        fill="#ff8a3d"
+      />
+    </svg>
   )
 }
