@@ -8,6 +8,7 @@ import type {
   DownscaleResp,
   ForecastResp,
   Health,
+  HighresResp,
   Meta,
   StateResp,
   TwinRunResp,
@@ -36,6 +37,14 @@ export async function getState(date?: string): Promise<StateResp> {
   if (hit) return hit
   const path = date ? `/state?date=${encodeURIComponent(date)}` : '/state'
   return cacheSet(key, await apiFetch<StateResp>(path, { stage: 'MIRROR' }))
+}
+
+export async function getHighres(date: string, varName: string): Promise<HighresResp> {
+  const key = cacheKey('/highres', { date, varName })
+  const hit = cacheGet<HighresResp>(key)
+  if (hit) return hit
+  const p = new URLSearchParams({ date, var: varName })
+  return cacheSet(key, await apiFetch<HighresResp>(`/highres?${p.toString()}`, { stage: 'MIRROR' }))
 }
 
 export interface ForecastQuery {

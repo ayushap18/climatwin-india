@@ -103,6 +103,27 @@ async def lifespan(app: FastAPI):
         lo, hi = np.nanpercentile(arr, [2, 98])
         S.ranges[v] = [round(float(lo), 2), round(float(hi), 2)]
 
+    # optional INDmet 0.05° (~5 km) high-res OBSERVED layer (genuine finer data, not a model)
+    S.indmet = None
+    indmet_path = cfg.DATA_DIR / "indmet_cube_005.nc"
+    if indmet_path.exists():
+        try:
+            hr = xr.open_dataset(indmet_path)
+            S.indmet = hr
+            S.indmet_lats = hr["lat"].values.round(4).tolist()
+            S.indmet_lons = hr["lon"].values.round(4).tolist()
+            S.indmet_dates = {str(t)[:10] for t in hr["time"].values}
+            S.indmet_vars = [v for v in cfg.VARS if v in hr.data_vars]
+            S.indmet_ranges = {}
+            for v in S.indmet_vars:
+                lo, hi = np.nanpercentile(hr[v].values, [2, 98])
+                S.indmet_ranges[v] = [round(float(lo), 2), round(float(hi), 2)]
+            print(f"[backend] INDmet 0.05° high-res layer loaded "
+                  f"({len(S.indmet_lats)}×{len(S.indmet_lons)}, vars={S.indmet_vars})")
+        except Exception as e:
+            print(f"[backend] INDmet not loaded ({type(e).__name__}: {e})")
+            S.indmet = None
+
     # prefer the trained model as the default behind /forecast when present
     S.default_model = "convlstm" if "convlstm" in S.forecasters else "climatology"
 
@@ -114,6 +135,8 @@ async def lifespan(app: FastAPI):
           f"grid {len(S.lats)}x{len(S.lons)}")
     yield
     S.cube.close()
+    if getattr(S, "indmet", None) is not None:
+        S.indmet.close()
 
 
 app = FastAPI(title="ClimaTwin India API", version="0.1.0", lifespan=lifespan)
@@ -342,6 +365,10 @@ def meta():
         "lst_source": S.cube.attrs.get("lst_source"),
         "has_lst": bool(getattr(S.forecasters.get("convlstm"), "has_lst", False)),
         "downscale_available": (cfg.CKPT_DIR / "downscale.pt").exists(),
+        "highres_available": getattr(S, "indmet", None) is not None,
+        "highres_res": 0.05 if getattr(S, "indmet", None) is not None else None,
+        "highres_vars": getattr(S, "indmet_vars", []),
+        "highres_shape": [len(S.indmet_lats), len(S.indmet_lons)] if getattr(S, "indmet", None) is not None else None,
         "max_horizon": 14,
         "thresholds": {
             "wet_day_mm": cfg.RAIN_WET_DAY_MM,
@@ -354,6 +381,46 @@ def meta():
 @app.get("/state")
 def state(date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to latest")):
     return _state_payload(_validate_date(date))
+
+
+@lru_cache(maxsize=256)
+def _highres_payload(date: str, var: str) -> dict:
+    """INDmet 0.05° observed field for one variable on one day (real ~5 km data)."""
+    hr = S.indmet
+    da = hr[var].sel(time=date)
+    return {
+        "date": date,
+        "var": var,
+        "data_source": "indmet",
+        "res_deg": 0.05,
+        "lat": S.indmet_lats,
+        "lon": S.indmet_lons,
+        "shape": [len(S.indmet_lats), len(S.indmet_lons)],
+        "unit": cfg.UNITS.get(var, ""),
+        "field": _grid(da.values),
+        "range": S.indmet_ranges.get(var, [0, 1]),
+        "note": (
+            "INDmet 0.05° (~5 km) daily observations (Zenodo 10.5281/zenodo.15430548, "
+            "CC-BY-4.0), blended IMD + CHIRPS + ERA5-Land — a genuine high-res layer "
+            "(5× finer than the 0.25° model grid), not a downscaled model output."
+        ),
+    }
+
+
+@app.get("/highres")
+def highres(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to latest"),
+    var: str = Query("rainfall", description="variable for the 0.05° layer"),
+):
+    """Real 0.05° INDmet observed field (5× finer than the model grid). 404 if unavailable."""
+    if getattr(S, "indmet", None) is None:
+        raise HTTPException(404, "INDmet high-res layer not available; run `python -m data.ingest_indmet`")
+    if var not in S.indmet_vars:
+        raise HTTPException(400, f"var {var!r} not in INDmet layer; have {S.indmet_vars}")
+    d = _validate_date(date)
+    if d not in S.indmet_dates:
+        raise HTTPException(404, f"date {d} not in INDmet layer")
+    return _highres_payload(d, var)
 
 
 @app.get("/forecast")
