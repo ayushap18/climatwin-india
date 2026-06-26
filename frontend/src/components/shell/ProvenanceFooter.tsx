@@ -10,10 +10,15 @@ export default function ProvenanceFooter() {
 
   const grid = `${meta.grid.shape[0]}×${meta.grid.shape[1]} @ ${meta.res_deg}°`
   const range = `${prettyDate(meta.dates.start)} – ${prettyDate(meta.dates.end)}`
+  // Be explicit that the satellite layer is not yet real ISRO data — honesty over hype.
+  const synthLst = meta.lst_source ? /synth/i.test(meta.lst_source) : false
+  const dataVal = synthLst
+    ? `${meta.data_source.toUpperCase()} · INSAT fusion: roadmap`
+    : `${meta.data_source.toUpperCase()}${meta.lst_source ? ` · LST ${meta.lst_source}` : ''}`
 
   return (
     <div className="flex h-full flex-col justify-center gap-1.5 px-4 py-3 font-mono text-[10px] text-muted">
-      <Row k="DATA" v={`${meta.data_source.toUpperCase()}${meta.lst_source ? ` · LST ${meta.lst_source}` : ''}`} />
+      <Row k="DATA" v={dataVal} />
       <Row k="MODEL" v={`${(model ?? meta.default_model).toUpperCase()}  (of ${meta.models.length})`} />
       <Row k="RANGE" v={range} />
       <Row k="GRID" v={grid} />
