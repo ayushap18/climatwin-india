@@ -19,6 +19,7 @@ interface Props {
   range: [number, number]
   res: number
   contrast?: number
+  pulseAbove?: number // cells whose value exceeds this gently pulse (e.g. heat-stress Tmax)
   selected: { row: number; col: number } | null
   onSelect: (cell: { row: number; col: number }) => void
 }
@@ -32,6 +33,7 @@ export default function GridLayer({
   range,
   res,
   contrast = 1,
+  pulseAbove,
   selected,
   onSelect,
 }: Props) {
@@ -43,16 +45,18 @@ export default function GridLayer({
       {cells.map((c: Cell) => {
         const isSel = selected?.row === c.i && selected?.col === c.j
         const fill = colorForValue(variable, c.value, range, contrast)
+        const pulse = pulseAbove != null && c.value > pulseAbove
         return (
           <Rectangle
             key={`${c.i}-${c.j}`}
             bounds={c.bounds}
             pathOptions={{
-              color: isSel ? COLORS.saffron : theme.line,
-              weight: isSel ? 2 : 0.5,
-              opacity: isSel ? 1 : 0.4,
+              color: pulse ? COLORS.danger : isSel ? COLORS.saffron : theme.line,
+              weight: isSel ? 2 : pulse ? 1 : 0.5,
+              opacity: isSel ? 1 : pulse ? 0.9 : 0.4,
               fillColor: fill,
               fillOpacity: 0.72,
+              className: pulse ? 'ct-heat-pulse' : undefined,
             }}
             eventHandlers={{ click: () => onSelect({ row: c.i, col: c.j }) }}
           >
