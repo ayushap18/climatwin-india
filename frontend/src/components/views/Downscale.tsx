@@ -6,11 +6,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import InfoPopover from '../panels/InfoPopover'
-import { getDownscale } from '../../api/endpoints'
-import type { DownscaleResp, VarName } from '../../api/types'
+import { getDownscale, getHighres } from '../../api/endpoints'
+import type { DownscaleResp, HighresResp, VarName } from '../../api/types'
 import { colorForValue } from '../../lib/colormaps'
+import { gradientEnergy, histogram, radialSpectrum } from '../../lib/fieldstats'
+import { useThemeColors } from '../../lib/useThemeColors'
 import { useAppState } from '../../state/useAppState'
 import { COLORS } from '../../theme'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 const VARS: VarName[] = ['rainfall', 'tmax', 'tmin']
 
@@ -43,10 +55,43 @@ export default function Downscale() {
     }
   }, [varName])
 
+  // real 0.05° INDmet field for the same day (genuine high-res, rainfall only)
+  const [hr, setHr] = useState<HighresResp | null>(null)
+  useEffect(() => {
+    if (!ds || varName !== 'rainfall' || !meta?.highres_available) {
+      setHr(null)
+      return
+    }
+    let on = true
+    getHighres(ds.date, 'rainfall')
+      .then((r) => on && setHr(r))
+      .catch(() => on && setHr(null))
+    return () => {
+      on = false
+    }
+  }, [ds, varName, meta?.highres_available])
+
   const range = useMemo<[number, number]>(
     () => (ds ? dataRange(ds.srcnn) : (meta?.colorbar_ranges[varName] ?? [0, 1])),
     [ds, meta, varName],
   )
+
+  // client-side field analytics (deterministic functions of returned fields)
+  const stats = useMemo(() => {
+    if (!ds) return null
+    const eb = gradientEnergy(ds.bilinear)
+    const es = gradientEnergy(ds.srcnn)
+    const eh = hr ? gradientEnergy(hr.field) : null
+    const hmax = Math.max(range[1], 1)
+    return {
+      texture: { bilinear: eb, srcnn: es, truth: eh },
+      hist: {
+        bilinear: histogram(ds.bilinear, 8, hmax),
+        srcnn: histogram(ds.srcnn, 8, hmax),
+      },
+      spectrum: { bilinear: radialSpectrum(ds.bilinear), srcnn: radialSpectrum(ds.srcnn) },
+    }
+  }, [ds, hr, range])
 
   return (
     <div className="grid h-full grid-cols-1 gap-3 p-3 lg:grid-cols-[1fr_340px]">
@@ -71,24 +116,29 @@ export default function Downscale() {
           <span className="text-online">imp% = 100·(RMSEᵦ − RMSEₛ)/RMSEᵦ</span>
         </div>
 
-        <div className="flex flex-1 flex-wrap items-center justify-center gap-6 p-6">
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
           {ds ? (
             <>
-              <Thumb title="COARSE INPUT ~1°" field={ds.coarse} varName={varName} range={range} contrast={gridContrast} />
-              <Reveal
-                a={ds.bilinear}
-                b={ds.srcnn}
-                varName={varName}
-                range={range}
-                contrast={gridContrast}
-                aLabel={`BILINEAR · RMSE ${ds.bilinear_rmse?.toFixed(2) ?? '—'}`}
-                bLabel={`SR-CNN · RMSE ${ds.srcnn_rmse?.toFixed(2) ?? '—'}`}
-              />
+              <div className="flex flex-wrap items-center justify-center gap-6">
+                <Thumb title="COARSE INPUT ~1°" field={ds.coarse} varName={varName} range={range} contrast={gridContrast} />
+                <Reveal
+                  a={ds.bilinear}
+                  b={ds.srcnn}
+                  varName={varName}
+                  range={range}
+                  contrast={gridContrast}
+                  aLabel={`BILINEAR · RMSE ${ds.bilinear_rmse?.toFixed(2) ?? '—'}`}
+                  bLabel={`SR-CNN · RMSE ${ds.srcnn_rmse?.toFixed(2) ?? '—'}`}
+                />
+              </div>
+              <ResolutionLadder ds={ds} hr={hr} varName={varName} range={range} contrast={gridContrast} />
             </>
           ) : error ? (
-            <UnavailableExplainer error={error} />
+            <div className="m-auto">
+              <UnavailableExplainer error={error} />
+            </div>
           ) : (
-            <div className="font-mono text-xs text-muted">loading…</div>
+            <div className="m-auto font-mono text-xs text-muted">loading…</div>
           )}
         </div>
       </section>
@@ -125,11 +175,19 @@ export default function Downscale() {
                 <div className="text-xl text-online">
                   {ds.improvement_pct != null ? `${ds.improvement_pct}%` : '—'}
                 </div>
-                <div className="text-[9px] text-muted">SR-CNN vs bilinear</div>
+                <div className="text-[9px] text-muted">SR-CNN vs bilinear (RMSE)</div>
               </div>
             </div>
           ) : (
             <div className="font-mono text-[10px] text-muted">{error ?? 'loading…'}</div>
+          )}
+
+          {stats && (
+            <>
+              <TextureBars t={stats.texture} hasTruth={!!hr} />
+              <SpectrumChart s={stats.spectrum} />
+              <HistogramChart h={stats.hist} hmax={Math.max(range[1], 1)} />
+            </>
           )}
           <div className="rounded-md border border-line bg-bg/50 px-2.5 py-2 font-mono text-[9px] leading-relaxed text-muted/80">
             <div className="mb-1 text-isro">how it works</div>
@@ -335,6 +393,157 @@ function Thumb({
         <Grid field={field} varName={varName} range={range} contrast={contrast} w={150} />
       </div>
       <div className="font-mono text-[10px] tracking-[0.12em] text-ink">{title}</div>
+    </div>
+  )
+}
+
+// --------------------------------------------------------------------------- //
+// RESOLUTION LADDER — coarse 1° → 0.25° model → real 0.05° INDmet
+// --------------------------------------------------------------------------- //
+function ResolutionLadder({
+  ds, hr, varName, range, contrast,
+}: {
+  ds: DownscaleResp; hr: HighresResp | null; varName: VarName; range: [number, number]; contrast: number
+}) {
+  const steps: Array<{
+    field: number[][]; label: string; res: string; cells: string; km: string; accent?: boolean; real?: boolean
+  }> = [
+    { field: ds.coarse, label: 'COARSE', res: '~1°', cells: `${ds.coarse.length}×${ds.coarse[0].length}`, km: '~110 km' },
+    { field: ds.srcnn, label: 'SR-CNN', res: '0.25°', cells: `${ds.srcnn.length}×${ds.srcnn[0].length}`, km: '~28 km', accent: true },
+  ]
+  if (hr && varName === 'rainfall') {
+    steps.push({ field: hr.field, label: 'INDmet', res: '0.05°', cells: `${hr.shape[0]}×${hr.shape[1]}`, km: '~5.5 km', real: true })
+  }
+  return (
+    <div className="rounded-lg border border-line bg-bg/40 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-mono text-[10px] tracking-[0.15em] text-muted">RESOLUTION LADDER</span>
+        <span className="font-mono text-[8px] text-muted/60">coarse → model → real 5 km</span>
+      </div>
+      <div className="flex flex-wrap items-end justify-center gap-2">
+        {steps.map((s, i) => (
+          <div key={s.label} className="flex items-end gap-2">
+            <div className="flex flex-col items-center gap-1">
+              <div
+                className="rounded-md"
+                style={{ outline: `1px solid ${s.real ? 'rgba(54,211,153,0.5)' : s.accent ? 'rgba(255,138,61,0.5)' : COLORS.line}` }}
+              >
+                <Grid field={s.field} varName={varName} range={range} contrast={contrast} w={s.real ? 156 : 112} />
+              </div>
+              <div
+                className="font-mono text-[9px] tracking-[0.1em]"
+                style={{ color: s.real ? COLORS.online : s.accent ? COLORS.saffron : COLORS.ink }}
+              >
+                {s.label} · {s.res}
+              </div>
+              <div className="font-mono text-[8px] text-muted/70">{s.cells} · {s.km}/cell</div>
+            </div>
+            {i < steps.length - 1 && <span className="pb-6 text-lg text-muted/40">→</span>}
+          </div>
+        ))}
+      </div>
+      {!hr && varName === 'rainfall' && (
+        <div className="mt-1.5 text-center font-mono text-[8px] text-muted/50">
+          real 0.05° INDmet layer loads for observed rainfall days
+        </div>
+      )}
+    </div>
+  )
+}
+
+// --------------------------------------------------------------------------- //
+// SPATIAL DETAIL — texture (gradient-energy) bars
+// --------------------------------------------------------------------------- //
+function TextureBars({ t, hasTruth }: { t: { bilinear: number; srcnn: number; truth: number | null }; hasTruth: boolean }) {
+  const rows: Array<{ name: string; v: number; color: string }> = [
+    { name: 'bilinear', v: t.bilinear, color: COLORS.isro },
+    { name: 'SR-CNN', v: t.srcnn, color: COLORS.online },
+  ]
+  if (hasTruth && t.truth != null) rows.push({ name: 'real 0.05°', v: t.truth, color: COLORS.saffron })
+  const ref = Math.max(...rows.map((r) => r.v), 1e-6)
+  return (
+    <div className="rounded-md border border-isro/30 bg-isro/5 px-2.5 py-2">
+      <div className="mb-1.5 font-mono text-[9px] tracking-[0.12em] text-isro">SPATIAL DETAIL · texture energy</div>
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.name} className="flex items-center gap-2">
+            <span className="w-16 font-mono text-[9px] text-muted">{r.name}</span>
+            <div className="h-2 flex-1 overflow-hidden rounded-sm bg-line/40">
+              <div className="h-full rounded-sm" style={{ width: `${Math.min(100, (r.v / ref) * 100)}%`, background: r.color }} />
+            </div>
+            <span className="w-9 text-right font-mono text-[8px] tabular-nums text-muted">{r.v.toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-1.5 font-mono text-[8px] leading-snug text-muted/70">
+        mean spatial gradient — SR-CNN recovers more fine detail than a blurry bilinear upsample
+        {hasTruth ? ', toward the real 5 km field' : ''}.
+      </p>
+    </div>
+  )
+}
+
+// --------------------------------------------------------------------------- //
+// POWER SPECTRUM — radial detail-by-scale
+// --------------------------------------------------------------------------- //
+function SpectrumChart({ s }: { s: { bilinear: number[]; srcnn: number[] } }) {
+  const c = useThemeColors()
+  const n = Math.max(s.bilinear.length, s.srcnn.length)
+  const data = Array.from({ length: n }, (_, i) => ({
+    k: i + 1,
+    bilinear: (s.bilinear[i] ?? 0) > 0 ? s.bilinear[i] : null,
+    srcnn: (s.srcnn[i] ?? 0) > 0 ? s.srcnn[i] : null,
+  }))
+  if (n < 2) return null
+  return (
+    <div className="rounded-md border border-line bg-bg/50 px-2.5 py-2">
+      <div className="mb-1 font-mono text-[9px] tracking-[0.12em] text-muted">POWER SPECTRUM · detail by scale</div>
+      <div className="h-[88px] w-full">
+        <ResponsiveContainer>
+          <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+            <CartesianGrid stroke={c.line} strokeDasharray="2 4" vertical={false} />
+            <XAxis dataKey="k" tick={{ fill: c.muted, fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke={c.line} />
+            <YAxis scale="log" domain={['auto', 'auto']} tick={{ fill: c.muted, fontSize: 7 }} stroke={c.line} width={30} />
+            <Line dataKey="bilinear" stroke={c.isro} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls />
+            <Line dataKey="srcnn" stroke={c.online} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="font-mono text-[8px] leading-snug text-muted/70">
+        <span className="text-isro">bilinear</span> vs <span className="text-online">SR-CNN</span> — higher
+        wavenumber = finer scale; SR-CNN lifts the high-scale tail bilinear flattens.
+      </p>
+    </div>
+  )
+}
+
+// --------------------------------------------------------------------------- //
+// VALUE DISTRIBUTION — histogram
+// --------------------------------------------------------------------------- //
+function HistogramChart({ h, hmax }: { h: { bilinear: number[]; srcnn: number[] }; hmax: number }) {
+  const c = useThemeColors()
+  const bins = h.bilinear.length
+  const data = h.bilinear.map((_, i) => ({
+    bin: `${Math.round((i / bins) * hmax)}`,
+    bilinear: h.bilinear[i],
+    srcnn: h.srcnn[i],
+  }))
+  return (
+    <div className="rounded-md border border-line bg-bg/50 px-2.5 py-2">
+      <div className="mb-1 font-mono text-[9px] tracking-[0.12em] text-muted">VALUE DISTRIBUTION</div>
+      <div className="h-[80px] w-full">
+        <ResponsiveContainer>
+          <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -24 }}>
+            <XAxis dataKey="bin" tick={{ fill: c.muted, fontSize: 7 }} stroke={c.line} />
+            <YAxis tick={{ fill: c.muted, fontSize: 7 }} stroke={c.line} width={30} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} />
+            <Bar dataKey="bilinear" fill={c.isro} opacity={0.7} />
+            <Bar dataKey="srcnn" fill={c.online} opacity={0.7} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="font-mono text-[8px] leading-snug text-muted/70">
+        value buckets — SR-CNN sharpens the field (fewer mid values, heavier tails) than the smooth bilinear.
+      </p>
     </div>
   )
 }

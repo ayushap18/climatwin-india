@@ -166,7 +166,7 @@ function Segmented({
   suffix?: string
 }) {
   return (
-    <div className="flex gap-1">
+    <div className="flex flex-wrap gap-1">
       {options.map((o) => {
         const active = value === o
         return (
