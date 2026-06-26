@@ -43,6 +43,57 @@ body {
   border-top-color: #1b2742;
 }
 
+/* --- console blinking cursor --- */
+@keyframes ct-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.ct-blink {
+  animation: ct-blink 1.1s step-end infinite;
+}
+
+/* --- range slider (TimeSlider) --- */
+input.ct-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+input.ct-range::-webkit-slider-runnable-track {
+  height: 4px;
+  background: transparent;
+}
+input.ct-range::-moz-range-track {
+  height: 4px;
+  background: transparent;
+}
+input.ct-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 9999px;
+  background: #e8f0ff;
+  border: 2px solid #ff8a3d;
+  box-shadow: 0 0 8px rgba(255, 138, 61, 0.8);
+}
+input.ct-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #e8f0ff;
+  border: 2px solid #ff8a3d;
+  box-shadow: 0 0 8px rgba(255, 138, 61, 0.8);
+}
+
 /* thin dark scrollbars to match the console aesthetic */
 * {
   scrollbar-width: thin;
