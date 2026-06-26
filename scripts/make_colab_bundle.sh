@@ -35,7 +35,7 @@ zip -r -q "${OUT}" . \
   -x "*/node_modules/*" "node_modules/*" \
   -x "*/.git/*" ".git/*" \
   -x "*.pyc" \
-  -x "${OUT}"
+  -x "*.zip"
 
 # Optionally include a prebuilt cube (e.g. one built locally WITH real INSAT LST),
 # so the notebook can skip the Colab-side build and train on the real-LST cube.
