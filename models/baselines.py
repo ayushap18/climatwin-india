@@ -93,6 +93,9 @@ def get_forecaster(name: str, cube: xr.Dataset | None = None) -> Forecaster:
         if cube is None:
             raise ValueError("climatology requires the cube to fit")
         return ClimatologyForecaster().fit(cube)
+    if name == "analog":
+        from models.analog import AnalogForecaster  # lazy import
+        return AnalogForecaster(cube=cube)
     if name == "convlstm":
         from models.convlstm import ConvLSTMForecaster  # lazy: avoids torch import otherwise
         return ConvLSTMForecaster(cube=cube)

@@ -121,6 +121,13 @@ def run(cube_path=None, horizons=(1, 3, 7)) -> dict:
         "persistence": PersistenceForecaster(),
         "climatology": ClimatologyForecaster().fit(cube),
     }
+    # Analog (k-NN) ensemble — pure-IMD, no checkpoint needed; scored like everything else.
+    try:
+        from models.analog import AnalogForecaster
+        forecasters["analog"] = AnalogForecaster(cube=cube)
+        print("[validate] including analog ensemble")
+    except Exception as e:
+        print(f"[validate] analog unavailable ({type(e).__name__}: {e})")
     # Include the trained ConvLSTM if a checkpoint exists (the model under test).
     if (cfg.CKPT_DIR / "convlstm.pt").exists():
         try:

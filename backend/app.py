@@ -78,6 +78,12 @@ async def lifespan(app: FastAPI):
         "persistence": get_forecaster("persistence"),
         "climatology": get_forecaster("climatology", cube=S.cube),
     }
+    # analog (k-NN) ensemble — pure-IMD, no checkpoint, wins mid/long-range temperature
+    try:
+        S.forecasters["analog"] = get_forecaster("analog", cube=S.cube)
+        print("[backend] analog ensemble ready")
+    except Exception as e:
+        print(f"[backend] analog not loaded ({type(e).__name__}: {e})")
     # the trained ConvLSTM, if a checkpoint exists
     if (cfg.CKPT_DIR / "convlstm.pt").exists():
         try:
@@ -173,7 +179,7 @@ def _forecast_payload(date: str, horizon: int, model: str) -> dict:
             "fields": _fields(f),
             "impacts": tw.impacts(f, d),
         })
-    return {
+    payload = {
         "init_date": str(start.date()),
         "model": model,
         "horizon": horizon,
@@ -184,6 +190,10 @@ def _forecast_payload(date: str, horizon: int, model: str) -> dict:
         "days": days,
         "sowing_window": tw.sowing_window(preds),
     }
+    # analog is explainable: surface the matched past IMD days ("behaves like …")
+    if model == "analog":
+        payload["analogs"] = list(getattr(tw.model, "last_analogs", []))[:8]
+    return payload
 
 
 @lru_cache(maxsize=256)
@@ -217,6 +227,50 @@ def _forecast_uncertainty_payload(date: str, horizon: int, samples: int) -> dict
         "uncertainty": True,
         "n_samples": samples,
         "uncertainty_method": "MC-dropout",
+        "data_source": S.data_source,
+        "lat": S.lats,
+        "lon": S.lons,
+        "units": cfg.UNITS,
+        "days": days,
+        "sowing_window": tw.sowing_window([np.asarray(m) for m in mean_list]),
+    }
+
+
+@lru_cache(maxsize=256)
+def _analog_payload(date: str, horizon: int) -> dict:
+    """Analog (k-NN) ensemble forecast + the matched train days that justify it.
+
+    The ``analogs`` list is the model's explanation — "next week behaves like these
+    past IMD days" — and the per-variable ``std`` grids are a free, flow-dependent
+    uncertainty band from the spread of the k observed analog futures.
+    """
+    if "analog" not in S.forecasters:
+        raise HTTPException(400, "analog forecaster unavailable")
+    tw = _build_twin("analog")
+    tw.initialize(date)
+    start = tw.current_date
+    mean_list, std_list = tw.model.forecast_ensemble(tw.history, start, horizon)
+    analogs = list(tw.model.last_analogs)  # nearest-first matched train days
+    days = []
+    for i, (mean_f, std_f) in enumerate(zip(mean_list, std_list), start=1):
+        mean_f = np.asarray(mean_f)
+        mean_f[RAIN] = np.clip(mean_f[RAIN], 0.0, None)
+        d = start + pd.Timedelta(days=i)
+        days.append({
+            "lead_day": i,
+            "date": str(d.date()),
+            "fields": _fields(mean_f),
+            "std": _fields(np.asarray(std_f)),
+            "impacts": tw.impacts(mean_f, d),
+        })
+    return {
+        "init_date": str(start.date()),
+        "model": "analog",
+        "horizon": horizon,
+        "uncertainty": True,
+        "uncertainty_method": "analog-ensemble-spread",
+        "k": tw.model.k,
+        "analogs": analogs[:8],
         "data_source": S.data_source,
         "lat": S.lats,
         "lon": S.lons,
@@ -314,6 +368,8 @@ def forecast(
     if uncertainty:
         if resolved == "convlstm" and "convlstm" in S.forecasters:
             return _forecast_uncertainty_payload(d, horizon, samples)
+        if resolved == "analog" and "analog" in S.forecasters:
+            return _analog_payload(d, horizon)  # ensemble spread = uncertainty band
         # graceful fallback: deterministic forecast + a clear note (never crash)
         payload = dict(_forecast_payload(d, horizon, resolved))
         payload["uncertainty_note"] = (
@@ -322,6 +378,15 @@ def forecast(
         )
         return payload
     return _forecast_payload(d, horizon, resolved)
+
+
+@app.get("/analog")
+def analog(
+    date: Optional[str] = Query(None, description="init date YYYY-MM-DD; defaults to latest"),
+    horizon: int = Query(cfg.H_HORIZON, ge=1, le=14),
+):
+    """Analog-ensemble forecast with the matched past IMD days (explainable forecast)."""
+    return _analog_payload(_validate_date(date), horizon)
 
 
 class WhatIfRequest(BaseModel):
