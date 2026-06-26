@@ -40,7 +40,9 @@ zip -r -q "${OUT}" . \
 # Optionally include a prebuilt cube (e.g. one built locally WITH real INSAT LST),
 # so the notebook can skip the Colab-side build and train on the real-LST cube.
 if [ "${WITH_DATA}" = "1" ]; then
-  for f in data/twin_cube.nc data/norm_stats.json data/insat_lst.nc; do
+  # indmet_cube_005.nc (0.05° truth) ships so the diffusion downscaler trains on Colab
+  # without re-downloading ~6 GB from Zenodo.
+  for f in data/twin_cube.nc data/norm_stats.json data/insat_lst.nc data/indmet_cube_005.nc; do
     [ -f "$f" ] && zip -q "${OUT}" "$f" && echo "[bundle] +included $f"
   done
 fi
