@@ -135,6 +135,30 @@ export interface WhatIfResp {
   sowing_scenario: SowingWindow
 }
 
+export interface TwinDay {
+  lead_day: number
+  date: string
+  twin: Fields
+  impacts_twin: Impacts
+  reality: Fields | null
+  divergence: Record<VarName, number> | null
+  sync_pct: number | null
+  impacts_reality?: Impacts
+}
+
+export interface TwinRunResp {
+  anchor_date: string
+  model: string
+  horizon: number
+  assimilate: boolean
+  data_source: string
+  lat: number[]
+  lon: number[]
+  units: Record<string, string>
+  sync_ref_tmax_c: number
+  days: TwinDay[]
+}
+
 export interface CategoricalMetrics {
   POD: number
   FAR: number

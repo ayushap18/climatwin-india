@@ -8,6 +8,7 @@ import Splash from './components/shell/Splash'
 import TopBar from './components/shell/TopBar'
 import NavRail from './components/shell/NavRail'
 import Overview from './components/views/Overview'
+import Twin from './components/views/Twin'
 import Explore from './components/views/Explore'
 import WhatIf from './components/views/WhatIf'
 import Validation from './components/views/Validation'
@@ -17,6 +18,7 @@ import { useAppState, type ViewId } from './state/useAppState'
 
 const VIEWS: Record<ViewId, () => JSX.Element> = {
   overview: Overview,
+  twin: Twin,
   explore: Explore,
   whatif: WhatIf,
   validation: Validation,
