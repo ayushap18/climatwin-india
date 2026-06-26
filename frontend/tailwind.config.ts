@@ -7,14 +7,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#030408',
-        panel: '#070910',
-        'panel-2': '#0b0d15',
-        line: '#171b27',
+        // themeable (switch via :root[data-theme])
+        bg: 'rgb(var(--bg) / <alpha-value>)',
+        panel: 'rgb(var(--panel) / <alpha-value>)',
+        'panel-2': 'rgb(var(--panel-2) / <alpha-value>)',
+        line: 'rgb(var(--line) / <alpha-value>)',
+        ink: 'rgb(var(--ink) / <alpha-value>)',
+        muted: 'rgb(var(--muted) / <alpha-value>)',
+        // accents (theme-independent)
         isro: '#3a78ff',
         saffron: '#ff8a3d',
-        ink: '#e8eefc',
-        muted: '#7e8aa6',
         online: '#36d399',
         danger: '#ff5470',
       },

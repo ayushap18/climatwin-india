@@ -58,8 +58,21 @@ export default function NavRail() {
         )
       })}
 
-      <div className="mt-auto px-2.5 pb-1 font-mono text-[8px] leading-relaxed tracking-[0.15em] text-muted/50">
-        TRACK A · M1
+      {/* Indian-flag tricolor marquee */}
+      <div className="mt-auto overflow-hidden rounded-md border border-line bg-bg/60 py-1.5">
+        <div className="ct-marquee">
+          {[0, 1].map((dup) => (
+            <span key={dup} className="inline-flex shrink-0 items-center gap-2 px-2 font-mono text-[10px] font-semibold tracking-[0.18em]">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <span key={i} className="inline-flex items-center gap-1.5">
+                  <span style={{ color: '#FF9933' }}>ISRO</span>
+                  <span style={{ color: '#1a8c2e' }}>HACKATHON</span>
+                  <span style={{ color: '#1a3aa0' }}>⊛</span>
+                </span>
+              ))}
+            </span>
+          ))}
+        </div>
       </div>
     </nav>
   )

@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { useAppDispatch, useAppState } from '../../state/useAppState'
 
 export default function SettingsPopover() {
-  const { gridContrast, globeSpin } = useAppState()
+  const { gridContrast, globeSpin, theme } = useAppState()
   const dispatch = useAppDispatch()
   const [open, setOpen] = useState(false)
 
@@ -33,6 +33,23 @@ export default function SettingsPopover() {
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-10 z-40 w-60 rounded-lg border border-line bg-panel p-3 shadow-glow">
             <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted">Display</div>
+
+            <div className="mb-3 flex items-center justify-between">
+              <span className="font-mono text-[10px] text-muted">THEME</span>
+              <div className="flex overflow-hidden rounded-md border border-line">
+                {(['dark', 'light'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => dispatch({ type: 'SET_THEME', theme: t })}
+                    className={`px-2.5 py-1 font-mono text-[10px] tracking-[0.1em] transition-colors ${
+                      theme === t ? 'bg-saffron/15 text-saffron' : 'text-muted hover:text-ink'
+                    }`}
+                  >
+                    {t === 'dark' ? '◐ DARK' : '◑ LIGHT'}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="flex items-center justify-between font-mono text-[10px] text-muted">
               <span>GRID CONTRAST</span>

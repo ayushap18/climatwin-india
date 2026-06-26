@@ -34,6 +34,7 @@ export interface AppState {
   selectedCell: { row: number; col: number } | null
   gridContrast: number // 0.4..2.5, applied to all heatmap colormaps (1 = neutral)
   globeSpin: boolean
+  theme: 'dark' | 'light'
 }
 
 const initialState: AppState = {
@@ -54,6 +55,7 @@ const initialState: AppState = {
   selectedCell: null,
   gridContrast: 1,
   globeSpin: true,
+  theme: 'dark',
 }
 
 type Action =
@@ -71,6 +73,7 @@ type Action =
   | { type: 'SELECT_CELL'; cell: { row: number; col: number } | null }
   | { type: 'SET_CONTRAST'; value: number }
   | { type: 'SET_GLOBE_SPIN'; on: boolean }
+  | { type: 'SET_THEME'; theme: 'dark' | 'light' }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -110,6 +113,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, gridContrast: action.value }
     case 'SET_GLOBE_SPIN':
       return { ...state, globeSpin: action.on }
+    case 'SET_THEME':
+      return { ...state, theme: action.theme }
     default:
       return state
   }

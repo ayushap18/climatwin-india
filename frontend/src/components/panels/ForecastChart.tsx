@@ -16,7 +16,7 @@ import {
 } from 'recharts'
 import type { VarName } from '../../api/types'
 import type { Frame, FrameData } from '../../state/useTimeline'
-import { COLORS } from '../../theme'
+import { useThemeColors } from '../../lib/useThemeColors'
 
 interface Props {
   frames: Frame[]
@@ -28,6 +28,7 @@ interface Props {
 }
 
 export default function ForecastChart({ frames, getData, variable, unit, cell, nowDate }: Props) {
+  const c = useThemeColors()
   const data = frames.map((f) => {
     const d = getData(f)
     const v = d?.fields[variable]?.[cell.row]?.[cell.col]
@@ -46,39 +47,39 @@ export default function ForecastChart({ frames, getData, variable, unit, cell, n
     <div className="h-[150px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 6, right: 6, bottom: 0, left: -18 }}>
-          <CartesianGrid stroke={COLORS.line} strokeDasharray="2 4" vertical={false} />
+          <CartesianGrid stroke={c.line} strokeDasharray="2 4" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fill: COLORS.muted, fontSize: 9, fontFamily: 'JetBrains Mono' }}
-            stroke={COLORS.line}
+            tick={{ fill: c.muted, fontSize: 9, fontFamily: 'JetBrains Mono' }}
+            stroke={c.line}
             interval="preserveStartEnd"
           />
           <YAxis
-            tick={{ fill: COLORS.muted, fontSize: 9, fontFamily: 'JetBrains Mono' }}
-            stroke={COLORS.line}
+            tick={{ fill: c.muted, fontSize: 9, fontFamily: 'JetBrains Mono' }}
+            stroke={c.line}
             width={34}
           />
           <Tooltip
             contentStyle={{
-              background: COLORS.panel,
-              border: `1px solid ${COLORS.line}`,
+              background: c.panel,
+              border: `1px solid ${c.line}`,
               borderRadius: 6,
               fontFamily: 'JetBrains Mono',
               fontSize: 11,
             }}
-            labelStyle={{ color: COLORS.muted }}
+            labelStyle={{ color: c.muted }}
             formatter={(val: number) => [`${val} ${unit}`, variable]}
           />
           {/* forecast region shading */}
           {lastLabel && (
-            <ReferenceArea x1={nowLabel} x2={lastLabel} fill={COLORS.saffron} fillOpacity={0.06} />
+            <ReferenceArea x1={nowLabel} x2={lastLabel} fill={c.saffron} fillOpacity={0.06} />
           )}
           {/* uncertainty band */}
           {hasBand && (
             <Area
               dataKey="band"
               stroke="none"
-              fill={COLORS.saffron}
+              fill={c.saffron}
               fillOpacity={0.18}
               isAnimationActive={false}
               connectNulls
@@ -87,14 +88,14 @@ export default function ForecastChart({ frames, getData, variable, unit, cell, n
           <Line
             type="monotone"
             dataKey="value"
-            stroke={COLORS.isro}
+            stroke={c.isro}
             strokeWidth={2}
-            dot={{ r: 2, fill: COLORS.isro }}
-            activeDot={{ r: 4, fill: COLORS.saffron }}
+            dot={{ r: 2, fill: c.isro }}
+            activeDot={{ r: 4, fill: c.saffron }}
             isAnimationActive={false}
             connectNulls
           />
-          <ReferenceLine x={nowLabel} stroke={COLORS.online} strokeDasharray="3 3" />
+          <ReferenceLine x={nowLabel} stroke={c.online} strokeDasharray="3 3" />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
