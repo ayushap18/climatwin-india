@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import DarkIndiaMap from '../map/DarkIndiaMap'
+import RegionLocator from '../map/RegionLocator'
 import ErrorLayer from '../map/ErrorLayer'
 import MetricsTable from '../panels/MetricsTable'
 import InfoPopover from '../panels/InfoPopover'
@@ -74,6 +75,7 @@ export default function Validation() {
               {error ? `validation unavailable: ${error}` : 'loading metrics…'}
             </div>
           )}
+          <RegionLocator />
         </div>
       </section>
 

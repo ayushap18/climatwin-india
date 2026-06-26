@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import DarkIndiaMap from '../map/DarkIndiaMap'
+import RegionLocator from '../map/RegionLocator'
 import DiffLayer from '../map/DiffLayer'
 import UrbanDrawTool from '../map/UrbanDrawTool'
 import LayerSwitch from '../controls/LayerSwitch'
@@ -110,6 +111,7 @@ export default function WhatIf() {
               loading scenario…
             </div>
           )}
+          <RegionLocator />
         </div>
 
         {/* lead-day scrub for the diff */}

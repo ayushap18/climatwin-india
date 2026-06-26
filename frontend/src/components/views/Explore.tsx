@@ -5,6 +5,7 @@
 
 import DarkIndiaMap from '../map/DarkIndiaMap'
 import GridLayer from '../map/GridLayer'
+import RegionLocator from '../map/RegionLocator'
 import TimeSlider from '../controls/TimeSlider'
 import LayerSwitch from '../controls/LayerSwitch'
 import ColorBar from '../controls/ColorBar'
@@ -40,7 +41,7 @@ export default function Explore() {
       <section className="relative flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-line bg-panel/40">
         <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
           <div className="font-mono text-[11px] tracking-[0.22em] text-ink">
-            DELHI-NCR · {activeVariable.toUpperCase()}
+            {(meta?.region ?? 'DELHI-NCR').toUpperCase()} · {activeVariable.toUpperCase()}
           </div>
           <div className="font-mono text-[10px] text-muted">
             {tl.activeFrame ? prettyDate(tl.activeFrame.date) : 'syncing…'}
@@ -68,6 +69,7 @@ export default function Explore() {
               loading grid…
             </div>
           )}
+          <RegionLocator />
         </div>
 
         <TimeSlider
