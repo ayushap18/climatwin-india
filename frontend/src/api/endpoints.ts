@@ -1,9 +1,18 @@
 // api/endpoints.ts — typed wrappers over apiFetch, each tagged with its twin stage
 // and memoized through the module-level cache. Bare paths; the client prepends the base.
 
-import { apiFetch } from './client'
+import { apiFetch, twinBus } from './client'
 import { cacheGet, cacheKey, cacheSet } from './cache'
-import type { ForecastResp, Health, Meta, StateResp } from './types'
+import type {
+  DownscaleResp,
+  ForecastResp,
+  Health,
+  Meta,
+  StateResp,
+  ValidateResp,
+  WhatIfParams,
+  WhatIfResp,
+} from './types'
 
 export async function getHealth(): Promise<Health> {
   const key = cacheKey('/health')
@@ -46,4 +55,31 @@ export async function getForecast(q: ForecastQuery = {}): Promise<ForecastResp> 
   const qs = params.toString()
   const path = qs ? `/forecast?${qs}` : '/forecast'
   return cacheSet(key, await apiFetch<ForecastResp>(path, { stage: 'SIMULATE' }))
+}
+
+export async function postWhatIf(body: WhatIfParams): Promise<WhatIfResp> {
+  const key = `/whatif:${JSON.stringify(body)}`
+  const hit = cacheGet<WhatIfResp>(key)
+  if (hit) return hit
+  // flare the twin loop in its scenario order: PERTURB -> SIMULATE -> IMPACT
+  twinBus.emit('PERTURB')
+  window.setTimeout(() => twinBus.emit('SIMULATE'), 220)
+  window.setTimeout(() => twinBus.emit('IMPACT'), 440)
+  return cacheSet(key, await apiFetch<WhatIfResp>('/whatif', { method: 'POST', body }))
+}
+
+export async function getValidate(): Promise<ValidateResp> {
+  const key = cacheKey('/validate')
+  const hit = cacheGet<ValidateResp>(key)
+  if (hit) return hit
+  return cacheSet(key, await apiFetch<ValidateResp>('/validate', { stage: 'IMPACT' }))
+}
+
+export async function getDownscale(date?: string, varName = 'rainfall'): Promise<DownscaleResp> {
+  const key = cacheKey('/downscale', { date, var: varName })
+  const hit = cacheGet<DownscaleResp>(key)
+  if (hit) return hit
+  const params = new URLSearchParams({ var: varName })
+  if (date) params.set('date', date)
+  return cacheSet(key, await apiFetch<DownscaleResp>(`/downscale?${params.toString()}`))
 }

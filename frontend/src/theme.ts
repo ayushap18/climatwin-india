@@ -46,6 +46,13 @@ export const COLORMAPS: Record<string, ColorStop[]> = {
     [0.5, '#0e1428'],
     [1.0, '#ff8a3d'],
   ],
+  // error — sequential low(good)->high(bad): dark -> blue -> saffron -> red
+  error: [
+    [0.0, '#0e1428'],
+    [0.4, '#2b6cff'],
+    [0.72, '#ff8a3d'],
+    [1.0, '#ff5470'],
+  ],
 }
 
 /** Linear-interpolate a colormap at t in [0,1] -> "#rrggbb". */

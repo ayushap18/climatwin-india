@@ -20,6 +20,21 @@ export function colorForValue(
   return sampleColormap(stops, normalize(value, range[0], range[1]))
 }
 
+/** Color from any named colormap for a value across an explicit [lo,hi] range. */
+export function colorForScale(
+  value: number,
+  range: [number, number],
+  key: keyof typeof COLORMAPS = 'error',
+): string {
+  return sampleColormap(COLORMAPS[key], normalize(value, range[0], range[1]))
+}
+
+/** Diverging color for a difference value, symmetric about 0 across ±magnitude. */
+export function colorForDiff(value: number, magnitude: number): string {
+  const m = magnitude || 1
+  return sampleColormap(COLORMAPS.diff, normalize(value, -m, m))
+}
+
 /** CSS linear-gradient string for a variable's colorbar (left=lo, right=hi). */
 export function gradientCss(variable: VarName): string {
   const stops = COLORMAPS[variable] ?? COLORMAPS.tmax
