@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import Globe from '../globe/Globe'
-import TwinCore from '../twin/TwinCore'
+import SyncFlow from '../twin/SyncFlow'
 import StatCard from '../panels/StatCard'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import { twinBus, type TwinStage } from '../../api/client'
@@ -107,20 +107,20 @@ export default function Overview() {
               {state ? prettyDate(state.date) : 'syncing…'}
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-6 p-5">
+          <div className="flex flex-wrap items-center gap-5 p-5">
             <motion.div initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6 }}>
-              <Globe size={240} />
+              <Globe size={200} />
             </motion.div>
-            <motion.button
+            <motion.div
               onClick={() => dispatch({ type: 'SET_VIEW', view: 'twin' })}
               title="open the Digital Twin"
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-              className="rounded-full transition-transform hover:scale-[1.02]"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="min-w-[340px] flex-1 cursor-pointer transition-transform hover:scale-[1.01]"
             >
-              <TwinCore size={280} />
-            </motion.button>
+              <SyncFlow />
+            </motion.div>
           </div>
         </div>
 
