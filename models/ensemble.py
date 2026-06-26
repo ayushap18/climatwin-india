@@ -127,6 +127,21 @@ def fit(cube: xr.Dataset | None = None, horizon: int = cfg.H_HORIZON, stride: in
             conformal[v][str(h + 1)] = q
             cover[v][str(h + 1)] = float((np.abs(blend - co[:, h, c]) <= q).mean())
 
+    # OUT-OF-SAMPLE honesty check: do the 90% bands actually cover ~90% on the UNTOUCHED
+    # TEST split (2022–2023)? (calib_coverage is ~90% by construction; this is the real test.)
+    ty0, ty1 = cfg.SPLIT["test"]
+    test_dates = _eligible_dates(cube, ty0, ty1, horizon, max(1, stride))
+    tp, to, _ = _collect(cube, members, test_dates, horizon)
+    test_cover: Dict[str, Dict[str, float]] = {v: {} for v in cfg.VARS}
+    for c, v in enumerate(cfg.VARS):
+        for h in range(horizon):
+            wv = np.array([weights[v][str(h + 1)][m] for m in names])
+            blend = np.tensordot(wv, np.stack([tp[m][:, h, c] for m in names]), axes=(0, 0))
+            hw = conformal[v][str(h + 1)]
+            test_cover[v][str(h + 1)] = float((np.abs(blend - to[:, h, c]) <= hw).mean())
+    print(f"[ensemble] TEST (out-of-sample) coverage @1-day (target {1-CONFORMAL_ALPHA:.0%}): "
+          + ", ".join(f"{v}={test_cover[v]['1']:.2f}" for v in cfg.VARS))
+
     out = {
         "members": names,
         "horizon": horizon,
@@ -134,7 +149,8 @@ def fit(cube: xr.Dataset | None = None, horizon: int = cfg.H_HORIZON, stride: in
         "weights": weights,
         "conformal_halfwidth": conformal,
         "calib_coverage": cover,
-        "split": {"fit_years": [vy0, vy1 - 1], "calib_years": [vy1, vy1]},
+        "test_coverage": test_cover,
+        "split": {"fit_years": [vy0, vy1 - 1], "calib_years": [vy1, vy1], "test_years": [ty0, ty1]},
         "note": (
             "Non-negative stacking weights fit on VAL 2019–2020; split-conformal 90% "
             "half-widths on the disjoint VAL 2021 slice. TEST (2022–2023) untouched."

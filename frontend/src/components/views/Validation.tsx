@@ -7,6 +7,7 @@ import DarkIndiaMap from '../map/DarkIndiaMap'
 import RegionLocator from '../map/RegionLocator'
 import ErrorLayer from '../map/ErrorLayer'
 import MetricsTable from '../panels/MetricsTable'
+import HonestSkillMatrix from '../panels/HonestSkillMatrix'
 import InfoPopover from '../panels/InfoPopover'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import { getValidate } from '../../api/endpoints'
@@ -97,6 +98,23 @@ export default function Validation() {
             </Row>
             <ErrorBar range={range} />
           </div>
+        </div>
+
+        <div className="rounded-xl border border-line bg-panel/40 p-3">
+          <div className="mb-2 flex items-center gap-1.5">
+            <PanelTitle>HONEST LEADERBOARD</PanelTitle>
+            <InfoPopover>
+              Per variable × horizon: which model wins and by how much vs the best baseline
+              (persistence/climatology). Green = a learned model beats baselines; amber = a
+              baseline is hard to beat (we show it honestly). Plus the ensemble's verified
+              conformal coverage.
+            </InfoPopover>
+          </div>
+          {v ? (
+            <HonestSkillMatrix v={v} />
+          ) : (
+            <div className="font-mono text-[10px] text-muted">{error ?? 'loading…'}</div>
+          )}
         </div>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl border border-line bg-panel/40 p-3">
