@@ -35,9 +35,6 @@ VARS = ["rainfall", "tmax", "tmin"]
 RAIN, TMAX, TMIN = 0, 1, 2  # channel indices into the state
 UNITS = {"rainfall": "mm", "tmax": "degC", "tmin": "degC", "elevation": "m"}
 
-# Static context channels carried in the cube but not predicted.
-STATIC_VARS = ["elevation"]
-
 # Model windowing.
 K_INPUT = 7    # input history length (days)
 H_HORIZON = 7  # default forecast horizon (days)
@@ -71,11 +68,6 @@ def grid_axes():
     lats = np.round(np.arange(PILOT["lat_min"], PILOT["lat_max"] + res / 2, res), 4)
     lons = np.round(np.arange(PILOT["lon_min"], PILOT["lon_max"] + res / 2, res), 4)
     return lats, lons
-
-
-def year_range(split_name: str):
-    """Inclusive (start, end) years for a split name in SPLIT."""
-    return SPLIT[split_name]
 
 
 def ensure_dirs():

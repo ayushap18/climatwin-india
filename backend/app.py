@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import config as cfg
-from config import RAIN, TMAX, TMIN
+from config import RAIN
 from models.baselines import get_forecaster
 from twin.climate_twin import ClimateTwin
 
