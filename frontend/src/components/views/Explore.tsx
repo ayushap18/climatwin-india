@@ -6,6 +6,7 @@
 import DarkIndiaMap from '../map/DarkIndiaMap'
 import GridLayer from '../map/GridLayer'
 import RegionLocator from '../map/RegionLocator'
+import RainOverlay from '../map/RainOverlay'
 import TimeSlider from '../controls/TimeSlider'
 import LayerSwitch from '../controls/LayerSwitch'
 import ColorBar from '../controls/ColorBar'
@@ -24,6 +25,13 @@ import type { HighresResp } from '../../api/types'
 import { useTimeline } from '../../state/useTimeline'
 import { useAppDispatch, useAppState } from '../../state/useAppState'
 import { useEffect, useState } from 'react'
+
+function mean2d(f: number[][]): number {
+  let s = 0
+  let n = 0
+  for (const row of f) for (const x of row) { s += x; n++ }
+  return n ? s / n : 0
+}
 
 export default function Explore() {
   const { state, meta, forecast, activeVariable, selectedCell, horizon, gridContrast } = useAppState()
@@ -68,6 +76,12 @@ export default function Explore() {
   const rRange = useHr ? (hr!.range as [number, number]) : range
   const rBounds = useHr ? gridBounds(hr!.lat, hr!.lon, hr!.res_deg) : bounds
 
+  // rain intensity (0..1) for the animated map overlay — only for the rainfall layer
+  const rainIntensity =
+    activeVariable === 'rainfall' && rField
+      ? Math.max(0, Math.min(1, mean2d(rField) / 18))
+      : 0
+
   return (
     <div className="grid h-full grid-cols-1 gap-3 p-3 lg:grid-cols-[1fr_340px]">
       {/* ---- MAIN: map + timeline ---- */}
@@ -98,6 +112,7 @@ export default function Explore() {
                 range={rRange}
                 res={rRes}
                 contrast={gridContrast}
+                pulseAbove={activeVariable === 'tmax' ? (meta?.thresholds.heat_stress_tmax_c ?? 40) : undefined}
                 selected={useHr ? null : selectedCell}
                 onSelect={(cell) => dispatch({ type: 'SELECT_CELL', cell })}
               />
@@ -107,6 +122,7 @@ export default function Explore() {
               loading grid…
             </div>
           )}
+          <RainOverlay intensity={rainIntensity} />
           <RegionLocator />
         </div>
 

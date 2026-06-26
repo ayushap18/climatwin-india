@@ -108,6 +108,30 @@ body {
   animation: ct-flow 2.6s linear infinite;
 }
 
+/* --- heat-stress cell pulse (Leaflet path) --- */
+@keyframes ct-heat {
+  0%,
+  100% {
+    stroke-opacity: 0.9;
+    fill-opacity: 0.72;
+  }
+  50% {
+    stroke-opacity: 0.3;
+    fill-opacity: 0.95;
+  }
+}
+.ct-heat-pulse {
+  animation: ct-heat 1.6s ease-in-out infinite;
+}
+
+/* --- rain overlay canvas sits above tiles, below controls --- */
+.ct-rain-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 450;
+}
+
 /* --- console blinking cursor --- */
 @keyframes ct-blink {
   0%,

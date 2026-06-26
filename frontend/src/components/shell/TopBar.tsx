@@ -60,6 +60,14 @@ export default function TopBar() {
         <Stat label="MODEL">
           <span className="text-saffron">{(model ?? '—').toUpperCase()}</span>
         </Stat>
+        <Stat label="SYSTEMS">
+          <span className="inline-flex items-center gap-1.5">
+            <Led on={online} title="data" label="DATA" />
+            <Led on={(meta?.models?.length ?? 0) > 2} title="models" label="ML" />
+            <Led on={!!meta?.highres_available} title="INDmet 0.05° high-res" label="HR" />
+            <Led on={!!meta?.diffusion_available} title="diffusion downscaler" label="DIF" />
+          </span>
+        </Stat>
         <Stat label="IST">
           <span className="text-ink tabular-nums">{clockIn('Asia/Kolkata', now)}</span>
         </Stat>
@@ -86,5 +94,17 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
       <span className="text-[8px] tracking-[0.2em] text-muted/70">{label}</span>
       <span>{children}</span>
     </div>
+  )
+}
+
+function Led({ on, title, label }: { on: boolean; title: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-0.5" title={title}>
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${on ? 'bg-online' : 'bg-line'}`}
+        style={on ? { boxShadow: '0 0 6px #36d399' } : undefined}
+      />
+      <span className={`text-[8px] ${on ? 'text-ink/70' : 'text-muted/40'}`}>{label}</span>
+    </span>
   )
 }

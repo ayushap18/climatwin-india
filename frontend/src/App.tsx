@@ -14,6 +14,7 @@ import WhatIf from './components/views/WhatIf'
 import Validation from './components/views/Validation'
 import Downscale from './components/views/Downscale'
 import CommandConsole from './components/console/CommandConsole'
+import CommandPalette from './components/shell/CommandPalette'
 import { useAppState, type ViewId } from './state/useAppState'
 
 const VIEWS: Record<ViewId, () => JSX.Element> = {
@@ -67,6 +68,7 @@ export default function App() {
         </div>
         <CommandConsole />
       </div>
+      <CommandPalette />
     </>
   )
 }

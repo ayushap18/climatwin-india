@@ -47,6 +47,12 @@ export default function ForecastChart({ frames, getData, variable, unit, cell, n
     <div className="h-[150px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 6, right: 6, bottom: 0, left: -18 }}>
+          <defs>
+            <linearGradient id="ctValGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={c.isro} stopOpacity={0.32} />
+              <stop offset="100%" stopColor={c.isro} stopOpacity={0} />
+            </linearGradient>
+          </defs>
           <CartesianGrid stroke={c.line} strokeDasharray="2 4" vertical={false} />
           <XAxis
             dataKey="label"
@@ -85,6 +91,14 @@ export default function ForecastChart({ frames, getData, variable, unit, cell, n
               connectNulls
             />
           )}
+          {/* soft gradient under the value line */}
+          <Area
+            dataKey="value"
+            stroke="none"
+            fill="url(#ctValGrad)"
+            isAnimationActive={false}
+            connectNulls
+          />
           <Line
             type="monotone"
             dataKey="value"

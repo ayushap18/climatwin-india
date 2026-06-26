@@ -21,9 +21,44 @@ interface Props {
   running: boolean
 }
 
+const PRESETS: Array<{ label: string; dt: number; rain: number; urban: number; tone: 'heat' | 'wet' | 'dry' | 'reset' }> = [
+  { label: '+2°C HEATWAVE', dt: 2, rain: 100, urban: 0, tone: 'heat' },
+  { label: 'MONSOON ×1.5', dt: 0, rain: 150, urban: 0, tone: 'wet' },
+  { label: 'DROUGHT ×0.5', dt: 1, rain: 50, urban: 0, tone: 'dry' },
+  { label: 'URBAN HEAT IS.', dt: 0, rain: 100, urban: 4, tone: 'heat' },
+  { label: 'RESET', dt: 0, rain: 100, urban: 0, tone: 'reset' },
+]
+const TONE: Record<string, string> = {
+  heat: 'border-danger/40 text-danger hover:bg-danger/10',
+  wet: 'border-isro/40 text-isro hover:bg-isro/10',
+  dry: 'border-saffron/40 text-saffron hover:bg-saffron/10',
+  reset: 'border-line text-muted hover:text-ink hover:border-line',
+}
+
 export default function WhatIfPanel(p: Props) {
+  const applyPreset = (dt: number, rain: number, urban: number) => {
+    p.onDeltaTemp(dt)
+    p.onRainPct(rain)
+    p.onUrbanLst(urban)
+  }
   return (
     <div className="space-y-3">
+      {/* one-click scenario presets */}
+      <div>
+        <span className="font-mono text-[10px] tracking-[0.12em] text-muted">SCENARIO PRESETS</span>
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {PRESETS.map((s) => (
+            <button
+              key={s.label}
+              onClick={() => applyPreset(s.dt, s.rain, s.urban)}
+              className={`rounded-full border px-2 py-1 font-mono text-[9px] tracking-[0.06em] transition-colors ${TONE[s.tone]}`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex items-center justify-between">
         <span className="font-mono text-[10px] tracking-[0.12em] text-muted">SCENARIO DATE</span>
         <input
