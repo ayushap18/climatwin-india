@@ -4,16 +4,26 @@
 // the twin — plus whatever stage the underlying endpoint emits).
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ApiError, twinBus } from '../../api/client'
+import { ApiError, twinBus, type TwinStage } from '../../api/client'
 import {
-  getAi,
+  getAnomaly,
+  getBrain,
   getDownscale,
   getForecast,
   getState,
   getValidate,
   postWhatIf,
 } from '../../api/endpoints'
-import type { AiResp, ForecastResp, StateResp, ValidateResp, WhatIfResp } from '../../api/types'
+import type {
+  AnomalyResp,
+  BrainResp,
+  BrainStage,
+  BrainStep,
+  ForecastResp,
+  StateResp,
+  ValidateResp,
+  WhatIfResp,
+} from '../../api/types'
 import { COLORS } from '../../theme'
 import { prettyDate } from '../../lib/format'
 
@@ -36,6 +46,8 @@ export default function CommandConsole() {
     { id: nextId++, input: '', status: 'ok', node: <Banner /> },
   ])
   const [history, setHistory] = useState<string[]>([])
+  const [anomaly, setAnomaly] = useState<AnomalyResp | null>(null)
+  const [anomalyHandled, setAnomalyHandled] = useState(false)
   const histIdx = useRef<number>(-1)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -46,6 +58,20 @@ export default function CommandConsole() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [entries, collapsed])
+  // autonomous scan: surface a recent heat/dryness anomaly on load
+  useEffect(() => {
+    getAnomaly()
+      .then((a) => setAnomaly(a.anomaly ? a : null))
+      .catch(() => setAnomaly(null))
+  }, [])
+
+  // run the anomaly's suggested investigation through the brain
+  function investigate() {
+    if (!anomaly?.suggested_question) return
+    setCollapsed(false)
+    setAnomalyHandled(true)
+    submit(anomaly.suggested_question)
+  }
 
   async function submit(raw: string) {
     const cmd = raw.trim()
@@ -93,22 +119,25 @@ export default function CommandConsole() {
 
   return (
     <section className="z-20 border-t border-line bg-panel/95 font-mono backdrop-blur-md">
-      <button
-        onClick={() => setCollapsed((c) => !c)}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] tracking-[0.15em] text-muted hover:text-ink"
-      >
-        <span className="text-saffron">{collapsed ? '▸' : '▾'}</span>
-        <span>TWIN CONSOLE</span>
-        {collapsed && (
-          <span className="text-muted/60">
-            — type <span className="text-ink">help</span>
-            <span className="ct-blink text-saffron"> ▋</span>
+      <div className="flex items-center">
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex flex-1 items-center gap-2 px-3 py-1.5 text-left text-[11px] tracking-[0.15em] text-muted hover:text-ink"
+        >
+          <span className="text-saffron">{collapsed ? '▸' : '▾'}</span>
+          <span>TWIN CONSOLE</span>
+          {collapsed && (
+            <span className="text-muted/60">
+              — ask the <span className="text-ink">brain</span>
+              <span className="ct-blink text-saffron"> ▋</span>
+            </span>
+          )}
+          <span className="ml-auto text-[9px] text-muted/50">
+            {collapsed ? 'click to open' : 'brain · forecast · whatif · state · validate · downscale'}
           </span>
-        )}
-        <span className="ml-auto text-[9px] text-muted/50">
-          {collapsed ? 'click to open' : 'ai · forecast · whatif · state · validate · downscale'}
-        </span>
-      </button>
+        </button>
+        {anomaly && !anomalyHandled && <AnomalyChip a={anomaly} onClick={investigate} />}
+      </div>
 
       {!collapsed && (
         <>
@@ -138,7 +167,7 @@ export default function CommandConsole() {
               onKeyDown={onKeyDown}
               spellCheck={false}
               autoComplete="off"
-              placeholder="ai is it a good time to sow?"
+              placeholder="is it a good time to sow if temperature rises 3°C?"
               className="flex-1 bg-transparent text-[12px] text-ink outline-none placeholder:text-muted/40"
               style={{ caretColor: COLORS.saffron }}
             />
@@ -157,13 +186,19 @@ async function execute(cmd: string): Promise<ReactNode> {
   const name = rawName.replace(/^\//, '') // accept /ai, /state, … too
   const num = (s: string | undefined, d: number) => (s === undefined ? d : Number(s))
 
+  // any line that isn't an explicit command is a natural-language question → the brain
+  if (!(COMMANDS as readonly string[]).includes(name)) {
+    const r = await getBrain(cmd)
+    return <BrainTrace r={r} />
+  }
+
   switch (name as (typeof COMMANDS)[number]) {
     case 'ai': {
       const question = args.join(' ').trim()
       if (!question)
         return <span className="text-muted">usage: ai &lt;question&gt; — e.g. ai is it a good time to sow?</span>
-      const r = await getAi(question)
-      return <AiResult r={r} />
+      const r = await getBrain(question)
+      return <BrainTrace r={r} />
     }
     case 'help':
       return <Banner />
@@ -218,19 +253,154 @@ function fmtN(n: number | null | undefined, d = 2) {
 // --------------------------------------------------------------------------- //
 // compact result renderers
 // --------------------------------------------------------------------------- //
-function AiResult({ r }: { r: AiResp }) {
+// --------------------------------------------------------------------------- //
+// agentic brain: plan trace (staged reveal) → cited answer + caveat
+// --------------------------------------------------------------------------- //
+// Brain stages → the 5-stage TwinCore bus (SKILL folds into IMPACT; REFUSE is silent).
+const STAGE_BUS: Record<BrainStage, TwinStage | null> = {
+  MIRROR: 'MIRROR',
+  ASSIMILATE: 'ASSIMILATE',
+  SIMULATE: 'SIMULATE',
+  PERTURB: 'PERTURB',
+  SKILL: 'IMPACT',
+  IMPACT: 'IMPACT',
+  REFUSE: null,
+}
+const STAGE_COLOR: Record<BrainStage, string> = {
+  MIRROR: COLORS.isro,
+  ASSIMILATE: COLORS.online,
+  SIMULATE: COLORS.saffron,
+  PERTURB: COLORS.saffron,
+  SKILL: COLORS.isro,
+  IMPACT: COLORS.online,
+  REFUSE: COLORS.danger,
+}
+const STEP_DELAY = 480 // ms between step reveals — gives the "thinking" cadence
+
+function AnomalyChip({ a, onClick }: { a: AnomalyResp; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title={a.message}
+      className="mr-3 flex shrink-0 items-center gap-1.5 rounded-full border border-danger/40 bg-danger/10 px-2.5 py-1 text-[10px] tracking-[0.1em] text-danger hover:bg-danger/20"
+    >
+      <span className="ct-blink">●</span>
+      {(a.kind ?? 'anomaly').toUpperCase()} {a.date} — investigate?
+    </button>
+  )
+}
+
+function BrainTrace({ r }: { r: BrainResp }) {
+  const [revealed, setRevealed] = useState(0)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    setRevealed(0)
+    setDone(false)
+    const timers: number[] = []
+    r.plan.forEach((step, i) => {
+      timers.push(
+        window.setTimeout(() => {
+          setRevealed(i + 1)
+          const bus = STAGE_BUS[step.stage] // flare the matching TwinCore node live
+          if (bus) twinBus.emit(bus)
+          if (i === r.plan.length - 1)
+            timers.push(window.setTimeout(() => setDone(true), STEP_DELAY))
+        }, i * STEP_DELAY),
+      )
+    })
+    return () => timers.forEach((t) => clearTimeout(t))
+  }, [r])
+
   return (
     <div className="text-ink/90">
-      <div className="flex items-start gap-2">
-        <span className="mt-0.5 shrink-0 rounded bg-saffron/15 px-1.5 py-0.5 text-[9px] tracking-[0.1em] text-saffron">
-          AI
+      <div className="mb-1 flex items-center gap-2">
+        <span className="shrink-0 rounded bg-saffron/15 px-1.5 py-0.5 text-[9px] tracking-[0.15em] text-saffron">
+          BRAIN
         </span>
-        <span className="leading-relaxed">{r.answer}</span>
+        <span className="text-[9px] uppercase tracking-[0.1em] text-muted/70">
+          {r.refused ? 'refused · out of scope' : `${r.intent} · ${r.plan.length}-step plan`}
+        </span>
       </div>
-      <div className="mt-1 pl-8 font-mono text-[9px] text-muted/60">
-        {r.intent} · {r.provider}
-        {r.used.length ? ` · called ${r.used.join(', ')}` : ''}
+
+      {/* the plan, revealed step-by-step */}
+      <div className="space-y-0.5 border-l border-line pl-2.5">
+        {r.plan.map((step, i) => (
+          <BrainStepRow
+            key={i}
+            step={step}
+            shown={i < revealed}
+            active={i === revealed - 1 && !done}
+          />
+        ))}
       </div>
+
+      {/* the grounded, cited answer + honest caveat, once the trace lands */}
+      {done && (
+        <div className="mt-1.5">
+          <CitedAnswer text={r.answer} />
+          {r.caveat && r.caveat !== '—' && (
+            <div className="mt-1 flex items-start gap-1 text-[10px] leading-snug text-muted/70">
+              <span className="shrink-0 text-saffron/70">⚠</span>
+              <span className="italic">{r.caveat}</span>
+            </div>
+          )}
+          <div className="mt-0.5 font-mono text-[9px] text-muted/50">
+            grounded · {r.provider}
+            {r.citations.length ? ` · ${r.citations.length} citation${r.citations.length > 1 ? 's' : ''}` : ''}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BrainStepRow({ step, shown, active }: { step: BrainStep; shown: boolean; active: boolean }) {
+  const color = STAGE_COLOR[step.stage]
+  return (
+    <div
+      className="flex items-center gap-2 transition-opacity duration-300"
+      style={{ opacity: shown ? 1 : 0.12 }}
+    >
+      <span
+        className="w-[74px] shrink-0 rounded px-1 py-0.5 text-center text-[8px] tracking-[0.12em]"
+        style={{ color, border: `1px solid ${color}33` }}
+      >
+        {step.stage}
+      </span>
+      <span className="flex-1 truncate text-[11px] text-ink/80">{step.label}</span>
+      <span className="w-3 shrink-0 text-center text-[11px]">
+        {!shown ? (
+          <span className="text-muted/40">○</span>
+        ) : active ? (
+          <span className="ct-blink text-saffron">▸</span>
+        ) : step.status === 'error' ? (
+          <span className="text-danger">✕</span>
+        ) : (
+          <span className="text-online">✓</span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+// render the answer, styling each [tool:field] grounding citation as a subtle chip
+function CitedAnswer({ text }: { text: string }) {
+  const parts = text.split(/(\[[^\]]+\])/g)
+  return (
+    <div className="leading-relaxed text-ink/90">
+      {parts.map((p, i) =>
+        /^\[[^\]]+\]$/.test(p) ? (
+          <span
+            key={i}
+            className="mx-0.5 inline-block rounded bg-isro/10 px-1 align-middle font-mono text-[9px] text-isro"
+          >
+            {p.slice(1, -1)}
+          </span>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
     </div>
   )
 }
@@ -238,9 +408,9 @@ function AiResult({ r }: { r: AiResp }) {
 function Banner() {
   return (
     <div className="text-muted">
-      <span className="text-ink">ClimaTwin console.</span> ask the assistant or run a command:
+      <span className="text-ink">ClimaTwin console.</span> ask the brain (or type a command):
       <div className="mt-1 grid grid-cols-1 gap-x-6 sm:grid-cols-2">
-        <Cmd k="ai <question>" d="grounded assistant (e.g. ai when to sow?)" />
+        <Cmd k="<question>" d="agentic brain: plan → tools → cited answer" />
         <Cmd k="state <date>" d="observed twin state + impacts" />
         <Cmd k="forecast <date> [h] [model]" d="roll-forward + sowing" />
         <Cmd k="whatif <date> [dT] [rain×] [urb]" d="perturb + impact deltas" />

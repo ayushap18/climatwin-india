@@ -168,6 +168,49 @@ export interface AiResp {
   data: unknown
 }
 
+// --- agentic brain ----------------------------------------------------------
+// Brain stages: the five twin-loop stages + SKILL (validation) + IMPACT (decision)
+// + REFUSE (out-of-scope). SKILL/REFUSE map onto the 5-stage TwinCore bus client-side.
+export type BrainStage =
+  | 'MIRROR'
+  | 'ASSIMILATE'
+  | 'SIMULATE'
+  | 'PERTURB'
+  | 'SKILL'
+  | 'IMPACT'
+  | 'REFUSE'
+
+export interface BrainStep {
+  stage: BrainStage
+  label: string
+  tool: string | null
+  status: 'pending' | 'ok' | 'error'
+  citation: string | null
+}
+
+export interface BrainResp {
+  question: string
+  intent: string
+  plan: BrainStep[]
+  facts: Record<string, unknown>
+  answer: string
+  citations: string[]
+  caveat: string
+  refused: boolean
+  provider: string
+}
+
+export interface AnomalyResp {
+  anomaly: boolean
+  kind: 'heat' | 'dryness' | null
+  date: string
+  value?: number
+  threshold?: number
+  baseline?: string
+  message: string
+  suggested_question: string | null
+}
+
 export interface TwinDay {
   lead_day: number
   date: string

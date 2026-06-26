@@ -804,18 +804,52 @@ def _ai_tools() -> dict:
             "validate": t_validate, "twin": t_twin}
 
 
-@app.get("/ai")
-def ai(q: str = Query(..., min_length=1, description="natural-language question about the twin")):
-    from backend import ai_engine
-    ctx = {
+def _ai_ctx() -> dict:
+    """The shared tool/context bundle handed to both the /ai engine and the /brain."""
+    return {
         "tools": _ai_tools(),
         "latest_date": S.dates[-1],
         "dates": (S.dates[0], S.dates[-1]),
         "region": cfg.PILOT["name"],
-        "thresholds": {"heat_stress_tmax_c": cfg.HEAT_STRESS_TMAX_C, "sowing_onset_mm": cfg.SOWING_ONSET_MM},
+        "max_horizon": 14,
+        "thresholds": {
+            "heat_stress_tmax_c": cfg.HEAT_STRESS_TMAX_C,
+            "sowing_onset_mm": cfg.SOWING_ONSET_MM,
+            "wet_day_mm": cfg.RAIN_WET_DAY_MM,
+        },
         "models": list(S.forecasters),
     }
-    return ai_engine.answer(q, ctx)
+
+
+@app.get("/ai")
+def ai(q: str = Query(..., min_length=1, description="natural-language question about the twin")):
+    from backend import ai_engine
+    return ai_engine.answer(q, _ai_ctx())
+
+
+@app.get("/brain")
+def brain(
+    q: str = Query(..., min_length=1, description="natural-language decision question"),
+    date: Optional[str] = Query(None, description="optional anchor date YYYY-MM-DD"),
+):
+    """The agentic brain: plan → execute real twin tools → critique → grounded answer.
+
+    Returns the full structured trace (plan steps + citable facts + cited answer + caveat),
+    so the dashboard can replay the multi-step reasoning. Fully offline; Ollama (if set via
+    OLLAMA_MODEL) only rephrases the grounded text.
+    """
+    from backend import brain as brain_mod
+
+    question = q if not date else f"{q} on {_validate_date(date)}"
+    return brain_mod.run(question, _ai_ctx())
+
+
+@app.get("/brain/anomaly")
+def brain_anomaly():
+    """Autonomous scan: flag a recent heat/dryness anomaly vs TRAIN-years climatology."""
+    from backend import brain as brain_mod
+
+    return brain_mod.anomaly_scan(S.cube)
 
 
 @app.get("/")
