@@ -5,7 +5,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import TwinCore from '../twin/TwinCore'
-import FieldGrid from '../twin/FieldGrid'
+import SyncFlow from '../twin/SyncFlow'
+import { FieldHeatmap } from '../ui/field-heatmap'
 import LayerSwitch from '../controls/LayerSwitch'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import ImpactBadges from '../panels/ImpactBadges'
@@ -15,6 +16,7 @@ import type { TwinRunResp, VarName } from '../../api/types'
 import { colorForValue, colorForScale } from '../../lib/colormaps'
 import { prettyDate } from '../../lib/format'
 import { COLORS } from '../../theme'
+import { useThemeColors } from '../../lib/useThemeColors'
 import { useAppDispatch, useAppState } from '../../state/useAppState'
 import {
   CartesianGrid,
@@ -66,6 +68,7 @@ const WALK: StageDef[] = [
 export default function Twin() {
   const { meta, activeVariable, gridContrast } = useAppState()
   const dispatch = useAppDispatch()
+  const c = useThemeColors()
   const [stage, setStage] = useState<TwinStage | null>(null)
 
   const models = meta?.models ?? []
@@ -180,6 +183,10 @@ export default function Twin() {
         </div>
 
         <div className="flex flex-1 flex-col items-center justify-center gap-5 p-5">
+          {/* horizontal sync path */}
+          <div className="w-full max-w-3xl">
+            <SyncFlow syncPct={day?.sync_pct ?? null} assimilating={assimilate} />
+          </div>
           {/* ring with live sync */}
           <TwinCore
             size={180}
@@ -192,25 +199,25 @@ export default function Twin() {
           {/* reality | twin | drift */}
           {realityF && twinF && drift ? (
             <div className="flex flex-wrap items-start justify-center gap-4">
-              <FieldGrid
+              <FieldHeatmap
                 field={realityF}
-                colorFn={colorFn}
+                color={colorFn}
                 title="REALITY"
                 sub={`observed · ${activeVariable}`}
                 width={184}
                 highlight={COLORS.isro}
               />
-              <FieldGrid
+              <FieldHeatmap
                 field={twinF}
-                colorFn={colorFn}
+                color={colorFn}
                 title="TWIN"
                 sub={`simulated · ${day?.sync_pct?.toFixed(0)}% sync`}
                 width={184}
                 highlight={syncColor(day?.sync_pct ?? null)}
               />
-              <FieldGrid
+              <FieldHeatmap
                 field={drift.grid}
-                colorFn={(v) => colorForScale(v, [0, driftRef], 'error', gridContrast)}
+                color={(v) => colorForScale(v, [0, driftRef], 'error', gridContrast)}
                 title="DRIFT"
                 sub={`Δ${activeVariable} · max ${drift.max.toFixed(1)}${unit}`}
                 width={184}
@@ -302,11 +309,11 @@ export default function Twin() {
           <div className="h-[120px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 6, right: 6, bottom: 0, left: -22 }}>
-                <CartesianGrid stroke={COLORS.line} strokeDasharray="2 4" vertical={false} />
-                <XAxis dataKey="lead" tick={{ fill: COLORS.muted, fontSize: 9 }} stroke={COLORS.line} />
-                <YAxis domain={[0, 100]} tick={{ fill: COLORS.muted, fontSize: 9 }} stroke={COLORS.line} width={30} />
+                <CartesianGrid stroke={c.line} strokeDasharray="2 4" vertical={false} />
+                <XAxis dataKey="lead" tick={{ fill: c.muted, fontSize: 9 }} stroke={c.line} />
+                <YAxis domain={[0, 100]} tick={{ fill: c.muted, fontSize: 9 }} stroke={c.line} width={30} />
                 <Tooltip
-                  contentStyle={{ background: COLORS.panel, border: `1px solid ${COLORS.line}`, fontSize: 11 }}
+                  contentStyle={{ background: c.panel, border: `1px solid ${c.line}`, fontSize: 11 }}
                   formatter={(v: number) => [`${v}%`, 'sync']}
                 />
                 <ReferenceLine x={`+${lead}`} stroke={COLORS.saffron} strokeDasharray="3 3" />
