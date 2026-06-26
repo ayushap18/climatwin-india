@@ -21,6 +21,28 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* --- Leaflet dark overrides (tile-less vector map) --- */
+.leaflet-container {
+  background: #05070d;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  outline: none;
+}
+.leaflet-container a {
+  color: #8aa0c8;
+}
+/* dark tooltips for the grid cells */
+.leaflet-tooltip.ct-tooltip {
+  background: #0b1020;
+  border: 1px solid #1b2742;
+  color: #e8f0ff;
+  box-shadow: 0 0 16px -6px rgba(43, 108, 255, 0.6);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.leaflet-tooltip.ct-tooltip::before {
+  border-top-color: #1b2742;
+}
+
 /* thin dark scrollbars to match the console aesthetic */
 * {
   scrollbar-width: thin;
