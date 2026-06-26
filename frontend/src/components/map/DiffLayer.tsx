@@ -13,9 +13,10 @@ interface Props {
   lon: number[]
   magnitude: number
   res: number
+  contrast?: number
 }
 
-export default function DiffLayer({ diff, lat, lon, magnitude, res }: Props) {
+export default function DiffLayer({ diff, lat, lon, magnitude, res, contrast = 1 }: Props) {
   const cells = cellsFor(diff, lat, lon, res)
 
   return (
@@ -29,7 +30,7 @@ export default function DiffLayer({ diff, lat, lon, magnitude, res }: Props) {
             color: '#1b2742',
             weight: 0.4,
             opacity: 0.35,
-            fillColor: colorForDiff(c.value, magnitude),
+            fillColor: colorForDiff(c.value, magnitude, contrast),
             fillOpacity: 0.78,
           }}
         />

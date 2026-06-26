@@ -12,9 +12,10 @@ interface Props {
   range: [number, number]
   unit: string
   res: number
+  contrast?: number
 }
 
-export default function ErrorLayer({ field, lat, lon, range, unit, res }: Props) {
+export default function ErrorLayer({ field, lat, lon, range, unit, res, contrast = 1 }: Props) {
   const cells = cellsFor(field, lat, lon, res)
   return (
     <>
@@ -26,7 +27,7 @@ export default function ErrorLayer({ field, lat, lon, range, unit, res }: Props)
             color: '#1b2742',
             weight: 0.4,
             opacity: 0.35,
-            fillColor: colorForScale(c.value, range, 'error'),
+            fillColor: colorForScale(c.value, range, 'error', contrast),
             fillOpacity: 0.78,
           }}
         >

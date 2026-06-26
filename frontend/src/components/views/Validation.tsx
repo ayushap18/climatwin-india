@@ -21,7 +21,7 @@ function maxOf(grid: number[][]): number {
 }
 
 export default function Validation() {
-  const { meta } = useAppState()
+  const { meta, gridContrast } = useAppState()
   const res = meta?.res_deg ?? 0.25
   const [v, setV] = useState<ValidateResp | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -67,7 +67,7 @@ export default function Validation() {
         <div className="relative min-h-0 flex-1">
           {bounds && v && errField ? (
             <DarkIndiaMap bounds={bounds}>
-              <ErrorLayer field={errField} lat={v.lat} lon={v.lon} range={range} unit="°C" res={res} />
+              <ErrorLayer field={errField} lat={v.lat} lon={v.lon} range={range} unit="°C" res={res} contrast={gridContrast} />
             </DarkIndiaMap>
           ) : (
             <div className="grid h-full place-items-center font-mono text-xs text-muted">
