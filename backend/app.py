@@ -413,6 +413,10 @@ def meta():
         "lst_source": S.cube.attrs.get("lst_source"),
         "has_lst": bool(getattr(S.forecasters.get("convlstm"), "has_lst", False)),
         "downscale_available": (cfg.CKPT_DIR / "downscale.pt").exists(),
+        "diffusion_available": (cfg.CKPT_DIR / "diffusion_downscale.pt").exists()
+        and getattr(S, "indmet", None) is not None,
+        "diffusion_metrics": (json.loads((cfg.MODELS_DIR / "diffusion_metrics.json").read_text())
+                              if (cfg.MODELS_DIR / "diffusion_metrics.json").exists() else None),
         "highres_available": getattr(S, "indmet", None) is not None,
         "highres_res": 0.05 if getattr(S, "indmet", None) is not None else None,
         "highres_vars": getattr(S, "indmet_vars", []),
@@ -753,6 +757,54 @@ def downscale(
         "improvement_pct": round(imp, 2) if imp is not None else None,
         "data_source": ds.data_source,
     }
+
+
+_DIFFUSION = {}  # lazy singleton
+
+
+def _get_diffusion():
+    ckpt = cfg.CKPT_DIR / "diffusion_downscale.pt"
+    if not ckpt.exists():
+        raise HTTPException(503, "diffusion downscaler unavailable: no checkpoint "
+                                 "(train via `python -m models.diffusion_downscale`, Colab GPU).")
+    if "m" not in _DIFFUSION:
+        from models.diffusion_downscale import DiffusionDownscaler
+        _DIFFUSION["m"] = DiffusionDownscaler()
+    return _DIFFUSION["m"]
+
+
+@lru_cache(maxsize=64)
+def _diffusion_payload(date: str, samples: int) -> dict:
+    dd = _get_diffusion()
+    e = dd.ensemble(date, n=samples)
+    mpath = cfg.MODELS_DIR / "diffusion_metrics.json"
+    metrics = json.loads(mpath.read_text()) if mpath.exists() else None
+    return {
+        "date": date, "var": "rainfall", "res_deg": 0.05, "samples": samples,
+        "lat": e["lat"], "lon": e["lon"], "shape": e["shape"], "range": e["range"], "unit": "mm",
+        "bilinear": _grid(e["bilinear"]),
+        "mean": _grid(e["mean"]),        # ensemble mean — the sharp downscaled field
+        "std": _grid(e["std"]),          # ensemble spread — where the model is uncertain
+        "truth": _grid(e["truth"]),      # real INDmet 0.05° (the validation target)
+        "metrics": metrics,
+        "note": ("CorrDiff-style residual diffusion: an ENSEMBLE of plausible 0.05° fields "
+                 "from the coarse input. Scored on spatial/spectral skill (FSS, power-spectra, "
+                 "CRPS) — where generative downscaling beats bilinear."),
+    }
+
+
+@app.get("/downscale/diffusion")
+def downscale_diffusion(
+    date: Optional[str] = Query(None, description="date YYYY-MM-DD; defaults to latest"),
+    samples: int = Query(6, ge=2, le=24, description="ensemble members"),
+):
+    """Diffusion-ensemble downscaling 0.25°→0.05° on real INDmet truth: bilinear baseline,
+    ensemble mean (sharp), ensemble spread (uncertainty), the real 0.05° field + skill metrics."""
+    dd = _get_diffusion()  # 503 if no checkpoint
+    d = _validate_date(date)
+    if d not in dd.dates:
+        raise HTTPException(404, f"date {d} not in the INDmet 0.05° record")
+    return _diffusion_payload(d, samples)
 
 
 # --------------------------------------------------------------------------- #

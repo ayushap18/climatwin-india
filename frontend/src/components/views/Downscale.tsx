@@ -6,9 +6,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import InfoPopover from '../panels/InfoPopover'
-import { getDownscale, getHighres } from '../../api/endpoints'
-import type { DownscaleResp, HighresResp, VarName } from '../../api/types'
-import { colorForValue } from '../../lib/colormaps'
+import { getDiffusion, getDownscale, getHighres } from '../../api/endpoints'
+import type { DiffusionMetrics, DiffusionResp, DownscaleResp, HighresResp, VarName } from '../../api/types'
+import { colorForScale, colorForValue } from '../../lib/colormaps'
 import { gradientEnergy, histogram, radialSpectrum } from '../../lib/fieldstats'
 import { useThemeColors } from '../../lib/useThemeColors'
 import { useAppState } from '../../state/useAppState'
@@ -25,6 +25,9 @@ import {
 } from 'recharts'
 
 const VARS: VarName[] = ['rainfall', 'tmax', 'tmin']
+// A wet monsoon day so the super-resolution / diffusion panels show real rainfall structure
+// (the latest cube date is a dry winter day where every method looks blank).
+const DEMO_DATE = '2023-08-23'
 
 function dataRange(grid: number[][]): [number, number] {
   let lo = Infinity
@@ -47,7 +50,7 @@ export default function Downscale() {
     let on = true
     setError(null)
     setDs(null)
-    getDownscale(undefined, varName)
+    getDownscale(DEMO_DATE, varName)
       .then((r) => on && setDs(r))
       .catch((e) => on && setError(e.message))
     return () => {
@@ -132,6 +135,9 @@ export default function Downscale() {
                 />
               </div>
               <ResolutionLadder ds={ds} hr={hr} varName={varName} range={range} contrast={gridContrast} />
+              {meta?.diffusion_available && varName === 'rainfall' && (
+                <DiffusionEnsemble date={ds.date} contrast={gridContrast} metrics={meta.diffusion_metrics} />
+              )}
             </>
           ) : error ? (
             <div className="m-auto">
@@ -343,18 +349,22 @@ function Grid({
   range,
   contrast,
   w,
+  colorFn,
 }: {
   field: number[][]
   varName: VarName
   range: [number, number]
   contrast: number
   w: number
+  colorFn?: (val: number) => string
 }) {
   const rows = field.length
   const cols = field[0]?.length ?? 1
   const cell = w / cols
   const h = cell * rows
-  const gap = 1.5
+  // tighter gaps on fine grids so a 40×60 field still reads as a continuous field
+  const gap = cols > 20 ? 0.4 : 1.5
+  const fill = colorFn ?? ((val: number) => colorForValue(varName, val, range, contrast))
   return (
     <svg width={w} height={h} className="block">
       {field.map((row, i) =>
@@ -365,8 +375,8 @@ function Grid({
             y={(rows - 1 - i) * cell + gap / 2}
             width={cell - gap}
             height={cell - gap}
-            rx={2}
-            fill={colorForValue(varName, val, range, contrast)}
+            rx={cols > 20 ? 0 : 2}
+            fill={fill(val)}
           />
         )),
       )}
@@ -447,6 +457,134 @@ function ResolutionLadder({
           real 0.05° INDmet layer loads for observed rainfall days
         </div>
       )}
+    </div>
+  )
+}
+
+// --------------------------------------------------------------------------- //
+// DIFFUSION ENSEMBLE — CorrDiff-style generative downscaling (the SOTA win)
+// --------------------------------------------------------------------------- //
+function DiffusionEnsemble({
+  date, contrast, metrics,
+}: {
+  date: string; contrast: number; metrics: DiffusionMetrics | null
+}) {
+  const [d, setD] = useState<DiffusionResp | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const run = () => {
+    setLoading(true)
+    setErr(null)
+    getDiffusion(date, 8)
+      .then(setD)
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoading(false))
+  }
+  const range: [number, number] = d ? d.range : [0, 30]
+  const stdMax = useMemo(() => {
+    if (!d) return 1
+    let m = 0
+    for (const row of d.std) for (const x of row) if (x > m) m = x
+    return Math.max(m, 0.5)
+  }, [d])
+
+  return (
+    <div className="rounded-lg border border-isro/40 bg-isro/5 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="font-mono text-[10px] tracking-[0.14em] text-isro">
+          DIFFUSION ENSEMBLE · CorrDiff-style 0.25°→0.05°
+        </span>
+        <button
+          onClick={run}
+          disabled={loading}
+          className="rounded-md border border-isro/50 bg-isro/10 px-2 py-1 font-mono text-[9px] tracking-[0.1em] text-ink transition-colors hover:bg-isro/20 disabled:opacity-50"
+        >
+          {loading ? 'sampling…' : d ? 'RESAMPLE' : 'GENERATE ENSEMBLE'}
+        </button>
+      </div>
+
+      {metrics && <MetricCompare m={metrics} />}
+
+      {d ? (
+        <div className="mt-3 flex flex-wrap items-end justify-center gap-3">
+          <DiffThumb title="BILINEAR" sub="smooth baseline" field={d.bilinear} range={range} contrast={contrast} />
+          <span className="pb-7 text-muted/40">→</span>
+          <DiffThumb title="DIFFUSION MEAN" sub={`${d.samples}-member ensemble`} field={d.mean} range={range} contrast={contrast} accent />
+          <DiffThumb
+            title="UNCERTAINTY ±σ"
+            sub="ensemble spread"
+            field={d.std}
+            range={[0, stdMax]}
+            contrast={contrast}
+            colorFn={(v) => colorForScale(v, [0, stdMax], 'error', contrast)}
+          />
+          <DiffThumb title="REAL 0.05°" sub="INDmet truth" field={d.truth} range={range} contrast={contrast} real />
+        </div>
+      ) : (
+        <div className="mt-3 text-center font-mono text-[9px] text-muted/70">
+          {err ? <span className="text-danger">{err}</span> : loading
+            ? 'sampling a 0.05° ensemble from the coarse field…'
+            : 'generate an ensemble of plausible 5 km fields + an uncertainty map for this day'}
+        </div>
+      )}
+      <p className="mt-2 font-mono text-[8px] leading-snug text-muted/70">
+        A residual diffusion model samples plausible high-res fields conditioned on the coarse input.
+        It is scored on spatial/spectral skill — where generative downscaling beats a blurry bilinear.
+      </p>
+    </div>
+  )
+}
+
+function MetricCompare({ m }: { m: DiffusionMetrics }) {
+  const rows = [
+    { label: 'RMSE ↓', b: m.bilinear_rmse, d: m.diffusion_rmse, win: m.diffusion_rmse < m.bilinear_rmse, fmt: (v: number) => v.toFixed(2) },
+    { label: `FSS@${m.threshold_mm} ↑`, b: m.fss_bilinear, d: m.fss_diffusion, win: m.fss_diffusion > m.fss_bilinear, fmt: (v: number) => v.toFixed(2) },
+    { label: 'spectrum→1 ↑', b: m.spec_bilinear, d: m.spec_diffusion, win: Math.abs(m.spec_diffusion - 1) < Math.abs(m.spec_bilinear - 1), fmt: (v: number) => v.toFixed(2) },
+  ]
+  return (
+    <div>
+      <table className="w-full border-separate font-mono text-[10px]" style={{ borderSpacing: '0 2px' }}>
+        <thead>
+          <tr className="text-[8px] text-muted/70">
+            <th className="text-left font-normal">test-split skill</th>
+            <th className="text-right font-normal">bilinear</th>
+            <th className="text-right font-normal text-online">diffusion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label}>
+              <td className="text-left text-muted">{r.label}</td>
+              <td className="text-right tabular-nums text-ink/80">{r.fmt(r.b)}</td>
+              <td className={`text-right tabular-nums ${r.win ? 'text-online' : 'text-saffron'}`}>
+                {r.fmt(r.d)} {r.win ? '✓' : ''}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-1 text-center font-mono text-[8px] text-muted/60">
+        CRPS {m.crps.toFixed(2)} · {m.n_samples} members · {m.n_days} test days · the generative SOTA answer to the SR-CNN’s double-penalty
+      </div>
+    </div>
+  )
+}
+
+function DiffThumb({
+  title, sub, field, range, contrast, accent, real, colorFn,
+}: {
+  title: string; sub: string; field: number[][]; range: [number, number]
+  contrast: number; accent?: boolean; real?: boolean; colorFn?: (v: number) => string
+}) {
+  const color = real ? COLORS.online : accent ? COLORS.saffron : COLORS.ink
+  const outline = real ? 'rgba(54,211,153,0.5)' : accent ? 'rgba(255,138,61,0.5)' : COLORS.line
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="rounded-md" style={{ outline: `1px solid ${outline}` }}>
+        <Grid field={field} varName="rainfall" range={range} contrast={contrast} w={130} colorFn={colorFn} />
+      </div>
+      <div className="font-mono text-[9px] tracking-[0.08em]" style={{ color }}>{title}</div>
+      <div className="font-mono text-[8px] text-muted/70">{sub}</div>
     </div>
   )
 }

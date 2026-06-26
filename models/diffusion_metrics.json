@@ -1,0 +1,13 @@
+{
+  "bilinear_rmse": 5.336,
+  "diffusion_rmse": 4.421,
+  "crps": 0.462,
+  "fss_bilinear": 0.679,
+  "fss_diffusion": 0.819,
+  "spec_bilinear": 0.157,
+  "spec_diffusion": 0.364,
+  "threshold_mm": 2.5,
+  "n_samples": 8,
+  "n_days": 120,
+  "data_source": "indmet"
+}
