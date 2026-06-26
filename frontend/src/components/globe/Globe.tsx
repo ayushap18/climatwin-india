@@ -6,12 +6,11 @@ import { useEffect, useRef } from 'react'
 import createGlobe from 'cobe'
 import { useAppState } from '../../state/useAppState'
 
-// Delhi-NCR center (lat, lon) from config.PILOT midpoint.
+// Fallback pilot center (lat, lon); overridden by the live /meta bbox midpoint below.
 const DELHI: [number, number] = [28.6, 77.0]
 
 // A scatter of markers across India to read as a saffron landmass glow.
-const INDIA_MARKERS: Array<{ location: [number, number]; size: number }> = [
-  { location: DELHI, size: 0.09 },
+const CITY_MARKERS: Array<{ location: [number, number]; size: number }> = [
   { location: [19.07, 72.87], size: 0.05 }, // Mumbai
   { location: [13.08, 80.27], size: 0.05 }, // Chennai
   { location: [22.57, 88.36], size: 0.05 }, // Kolkata
@@ -25,11 +24,18 @@ const INDIA_MARKERS: Array<{ location: [number, number]; size: number }> = [
 
 export default function Globe({ size = 360 }: { size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const { globeSpin } = useAppState()
+  const { globeSpin, meta } = useAppState()
   const spinRef = useRef(globeSpin)
   useEffect(() => {
     spinRef.current = globeSpin
   }, [globeSpin])
+
+  // pilot pin follows the live region (config.PILOT via /meta), not a hardcoded city
+  const b = meta?.bbox
+  const pilot: [number, number] = b
+    ? [(b.lat_min + b.lat_max) / 2, (b.lon_min + b.lon_max) / 2]
+    : DELHI
+  const markers = [{ location: pilot, size: 0.09 }, ...CITY_MARKERS]
 
   useEffect(() => {
     let phi = 4.9 // start roughly facing India
@@ -56,7 +62,7 @@ export default function Globe({ size = 360 }: { size?: number }) {
       baseColor: [0.2, 0.28, 0.45],
       markerColor: [1, 0.54, 0.24], // saffron
       glowColor: [0.2, 0.45, 1], // isro blue
-      markers: INDIA_MARKERS,
+      markers,
       onRender: (state) => {
         state.phi = phi
         if (spinRef.current) phi += 0.0035 // pause rotation when globe spin is off
@@ -69,7 +75,9 @@ export default function Globe({ size = 360 }: { size?: number }) {
       globe.destroy()
       window.removeEventListener('resize', onResize)
     }
-  }, [])
+    // rebuild once when the pilot center resolves from /meta
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pilot[0], pilot[1]])
 
   return (
     <div style={{ width: size, maxWidth: '100%', aspectRatio: '1' }} className="relative">
