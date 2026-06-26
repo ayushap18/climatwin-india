@@ -285,16 +285,18 @@ function Grid({
   const cols = field[0]?.length ?? 1
   const cell = w / cols
   const h = cell * rows
+  const gap = 1.5
   return (
     <svg width={w} height={h} className="block">
       {field.map((row, i) =>
         row.map((val, j) => (
           <rect
             key={`${i}-${j}`}
-            x={j * cell}
-            y={(rows - 1 - i) * cell}
-            width={cell + 0.5}
-            height={cell + 0.5}
+            x={j * cell + gap / 2}
+            y={(rows - 1 - i) * cell + gap / 2}
+            width={cell - gap}
+            height={cell - gap}
+            rx={2}
             fill={colorForValue(varName, val, range, contrast)}
           />
         )),
