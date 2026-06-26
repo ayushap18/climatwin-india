@@ -20,7 +20,7 @@ import { useTimeline } from '../../state/useTimeline'
 import { useAppDispatch, useAppState } from '../../state/useAppState'
 
 export default function Explore() {
-  const { state, meta, forecast, activeVariable, selectedCell, horizon } = useAppState()
+  const { state, meta, forecast, activeVariable, selectedCell, horizon, gridContrast } = useAppState()
   const dispatch = useAppDispatch()
   const tl = useTimeline()
 
@@ -57,6 +57,7 @@ export default function Explore() {
                 unit={unit}
                 range={range}
                 res={res}
+                contrast={gridContrast}
                 selected={selectedCell}
                 onSelect={(cell) => dispatch({ type: 'SELECT_CELL', cell })}
               />

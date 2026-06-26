@@ -25,7 +25,7 @@ function dataRange(grid: number[][]): [number, number] {
 }
 
 export default function Downscale() {
-  const { meta } = useAppState()
+  const { meta, gridContrast } = useAppState()
   const [varName, setVarName] = useState<VarName>('rainfall')
   const [ds, setDs] = useState<DownscaleResp | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -61,14 +61,14 @@ export default function Downscale() {
         <div className="flex flex-1 flex-wrap items-center justify-center gap-4 p-6">
           {ds ? (
             <>
-              <Thumb title="COARSE ~1°" field={ds.coarse} varName={varName} range={range} />
+              <Thumb title="COARSE ~1°" field={ds.coarse} varName={varName} range={range} contrast={gridContrast} />
               <Arrow />
               <Thumb
                 title="BILINEAR"
                 sub={ds.bilinear_rmse != null ? `RMSE ${ds.bilinear_rmse.toFixed(2)}` : ''}
                 field={ds.bilinear}
                 varName={varName}
-                range={range}
+                range={range} contrast={gridContrast}
               />
               <Arrow />
               <Thumb
@@ -77,7 +77,7 @@ export default function Downscale() {
                 field={ds.srcnn}
                 varName={varName}
                 range={range}
-                highlight
+                highlight contrast={gridContrast}
               />
             </>
           ) : (
@@ -174,6 +174,7 @@ function Thumb({
   varName,
   range,
   highlight,
+  contrast = 1,
 }: {
   title: string
   sub?: string
@@ -181,6 +182,7 @@ function Thumb({
   varName: VarName
   range: [number, number]
   highlight?: boolean
+  contrast?: number
 }) {
   const w = 168
   const rows = field.length
@@ -206,7 +208,7 @@ function Thumb({
               y={(rows - 1 - i) * cell}
               width={cell + 0.5}
               height={cell + 0.5}
-              fill={colorForValue(varName, val, range)}
+              fill={colorForValue(varName, val, range, contrast)}
             />
           )),
         )}

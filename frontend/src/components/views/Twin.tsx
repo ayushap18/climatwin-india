@@ -50,7 +50,7 @@ function syncColor(pct: number | null): string {
 }
 
 export default function Twin() {
-  const { meta, activeVariable } = useAppState()
+  const { meta, activeVariable, gridContrast } = useAppState()
 
   const models = meta?.models ?? []
   const preferredModel = models.includes('convlstm')
@@ -102,7 +102,7 @@ export default function Twin() {
   )
 
   const chartData = (run?.days ?? []).map((d) => ({ lead: `+${d.lead_day}`, sync: d.sync_pct }))
-  const colorFn = (v: number) => colorForValue(activeVariable, v, range)
+  const colorFn = (v: number) => colorForValue(activeVariable, v, range, gridContrast)
   // color drift on an absolute scale (~40% of the variable's data span) so a small,
   // spatially-uniform drift doesn't saturate the diverging colormap to all-red.
   const driftRef = Math.max(1, (range[1] - range[0]) * 0.4)
@@ -151,7 +151,7 @@ export default function Twin() {
               />
               <FieldGrid
                 field={drift.grid}
-                colorFn={(v) => colorForScale(v, [0, driftRef], 'error')}
+                colorFn={(v) => colorForScale(v, [0, driftRef], 'error', gridContrast)}
                 title="DRIFT"
                 sub={`Δ${activeVariable} · max ${drift.max.toFixed(1)}${unit}`}
                 width={184}

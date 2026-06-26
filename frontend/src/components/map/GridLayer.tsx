@@ -17,6 +17,7 @@ interface Props {
   unit: string
   range: [number, number]
   res: number
+  contrast?: number
   selected: { row: number; col: number } | null
   onSelect: (cell: { row: number; col: number }) => void
 }
@@ -29,6 +30,7 @@ export default function GridLayer({
   unit,
   range,
   res,
+  contrast = 1,
   selected,
   onSelect,
 }: Props) {
@@ -38,7 +40,7 @@ export default function GridLayer({
     <>
       {cells.map((c: Cell) => {
         const isSel = selected?.row === c.i && selected?.col === c.j
-        const fill = colorForValue(variable, c.value, range)
+        const fill = colorForValue(variable, c.value, range, contrast)
         return (
           <Rectangle
             key={`${c.i}-${c.j}`}
