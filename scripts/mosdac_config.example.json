@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy this to data/mosdac_config.json (gitignored) and fill in your MOSDAC credentials. Used by `make insat-real` to fetch INSAT-3D LST granules. Register + get approval at https://www.mosdac.gov.in/ first. bbox is minLon,minLat,maxLon,maxLat for the Delhi-NCR pilot.",
+  "user_credentials": {
+    "username": "YOUR_MOSDAC_USERNAME",
+    "password": "YOUR_MOSDAC_PASSWORD"
+  },
+  "search_parameters": {
+    "datasetId": "3DIMG_L2B_LST",
+    "startTime": "2020-06-01",
+    "endTime": "2020-09-30",
+    "boundingBox": "75.5,27.5,78.5,29.5",
+    "count": 100
+  },
+  "download_settings": {
+    "download_path": "data/raw/insat",
+    "organize_by_date": false,
+    "skip_user_prompt": true,
+    "generate_error_log": true
+  }
+}
