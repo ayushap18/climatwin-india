@@ -28,6 +28,86 @@ export const twinBus = {
   },
 }
 
+// --- websocket: simulated real-time twin stream --------------------------------
+// Same origin as the page; '/ws' is proxied to the backend in dev (vite.config.ts).
+const WS_BASE =
+  (import.meta.env.VITE_WS_BASE as string | undefined) ??
+  (typeof window !== 'undefined'
+    ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
+    : '')
+
+export interface TwinTick {
+  type: 'init' | 'tick' | 'done' | 'error'
+  // init
+  anchor_date?: string
+  region?: string
+  model?: string
+  assimilate?: boolean
+  horizon?: number
+  total_steps?: number
+  lat?: number[]
+  lon?: number[]
+  units?: Record<string, string>
+  // tick (shape matches TwinDay)
+  lead_day?: number
+  date?: string
+  stage?: TwinStage
+  twin?: Record<string, number[][]>
+  reality?: Record<string, number[][]> | null
+  divergence?: Record<string, number> | null
+  sync_pct?: number | null
+  impacts_twin?: unknown
+  impacts_reality?: unknown
+  // done / error
+  steps?: number
+  message?: string
+}
+
+export interface TwinStreamOpts {
+  date?: string
+  horizon?: number
+  assimilate?: boolean
+  model?: string
+  intervalMs?: number
+}
+
+/**
+ * Open the simulated-real-time twin WebSocket. Each tick flares its twin-loop stage on
+ * the bus (so the TwinCore animates live) and is handed to `onMessage`. Returns a closer.
+ */
+export function openTwinStream(opts: TwinStreamOpts, onMessage: (m: TwinTick) => void): () => void {
+  const p = new URLSearchParams()
+  if (opts.date) p.set('date', opts.date)
+  if (opts.horizon != null) p.set('horizon', String(opts.horizon))
+  if (opts.assimilate != null) p.set('assimilate', String(opts.assimilate))
+  if (opts.model) p.set('model', opts.model)
+  if (opts.intervalMs != null) p.set('interval_ms', String(opts.intervalMs))
+  let ws: WebSocket | null = null
+  try {
+    ws = new WebSocket(`${WS_BASE}/ws/twin?${p.toString()}`)
+  } catch {
+    onMessage({ type: 'error', message: 'websocket unavailable' })
+    return () => {}
+  }
+  ws.onmessage = (ev) => {
+    try {
+      const m = JSON.parse(ev.data) as TwinTick
+      if (m.stage) twinBus.emit(m.stage)
+      onMessage(m)
+    } catch {
+      /* ignore malformed frame */
+    }
+  }
+  ws.onerror = () => onMessage({ type: 'error', message: 'websocket error' })
+  return () => {
+    try {
+      ws?.close()
+    } catch {
+      /* already closed */
+    }
+  }
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message)

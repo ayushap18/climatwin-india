@@ -12,6 +12,7 @@ import ProvenanceFooter from '../shell/ProvenanceFooter'
 import ImpactBadges from '../panels/ImpactBadges'
 import { getTwinRun } from '../../api/endpoints'
 import { twinBus, type TwinStage } from '../../api/client'
+import { useTwinStream } from '../../state/useTwinStream'
 import type { TwinRunResp, VarName } from '../../api/types'
 import { colorForValue, colorForScale } from '../../lib/colormaps'
 import { prettyDate } from '../../lib/format'
@@ -83,8 +84,16 @@ export default function Twin() {
   const [horizon, setHorizon] = useState(7)
   const [anchor, setAnchor] = useState('')
   const [lead, setLead] = useState(1)
-  const [run, setRun] = useState<TwinRunResp | null>(null)
+  const [restRun, setRestRun] = useState<TwinRunResp | null>(null)
   const [loading, setLoading] = useState(false)
+  const [live, setLive] = useState(false)
+
+  // simulated real-time: stream the twin loop over a WebSocket (offline-safe replay)
+  const stream = useTwinStream(
+    { date: anchor, horizon, assimilate, model, intervalMs: 700 },
+    live && !!anchor && !!model,
+  )
+  const run = live && stream.run ? stream.run : restRun
 
   // initialize model + anchor once meta is ready
   useEffect(() => {
@@ -93,21 +102,26 @@ export default function Twin() {
   }, [meta, model, anchor, preferredModel, horizon])
 
   useEffect(() => {
-    if (!anchor || !model) return
+    if (!anchor || !model || live) return // live mode is fed by the WebSocket, not REST
     let on = true
     setLoading(true)
     getTwinRun({ date: anchor, horizon, assimilate, model })
-      .then((r) => on && setRun(r))
+      .then((r) => on && setRestRun(r))
       .catch(() => {})
       .finally(() => on && setLoading(false))
     return () => {
       on = false
     }
-  }, [anchor, horizon, assimilate, model])
+  }, [anchor, horizon, assimilate, model, live])
 
   useEffect(() => {
     setLead((l) => Math.min(Math.max(1, l), horizon))
   }, [horizon])
+
+  // while streaming, follow the most-recent day that has arrived
+  useEffect(() => {
+    if (live && stream.latestLead > 0) setLead(stream.latestLead)
+  }, [live, stream.latestLead])
 
   function runStage(s: TwinStage) {
     setStage(s)
@@ -143,8 +157,26 @@ export default function Twin() {
           <div className="font-mono text-[11px] tracking-[0.22em] text-ink">
             DIGITAL TWIN · {assimilate ? 'ASSIMILATING' : 'FREE-RUN'} · {model || '—'}
           </div>
-          <div className="font-mono text-[10px] text-muted">
-            anchor {run ? prettyDate(run.anchor_date) : '…'} · {day ? `+${day.lead_day}d` : ''}
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-[10px] text-muted">
+              anchor {run ? prettyDate(run.anchor_date) : '…'} · {day ? `+${day.lead_day}d` : ''}
+            </span>
+            <button
+              onClick={() => setLive((v) => !v)}
+              title="replay the cached record as a live feed (offline-safe)"
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] tracking-[0.12em] transition-colors ${
+                live
+                  ? 'border-danger/60 bg-danger/10 text-danger'
+                  : 'border-line text-muted hover:border-isro/40 hover:text-ink'
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  live ? 'bg-danger ' + (stream.streaming ? 'ct-blink' : '') : 'bg-muted'
+                }`}
+              />
+              {live ? (stream.streaming ? 'LIVE' : stream.done ? 'REPLAYED' : 'LIVE') : 'GO LIVE'}
+            </button>
           </div>
         </div>
 

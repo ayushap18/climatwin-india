@@ -17,6 +17,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ''),
       },
+      // WebSocket for the simulated real-time twin stream (/ws/twin)
+      '/ws': {
+        target: 'http://127.0.0.1:8000',
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
   preview: {
@@ -26,6 +32,12 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ''),
+      },
+      // WebSocket for the simulated real-time twin stream (/ws/twin)
+      '/ws': {
+        target: 'http://127.0.0.1:8000',
+        ws: true,
+        changeOrigin: true,
       },
     },
   },

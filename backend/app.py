@@ -17,12 +17,13 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 from functools import lru_cache
+import asyncio
 from typing import List, Optional
 
 import numpy as np
 import pandas as pd
 import xarray as xr
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -451,35 +452,38 @@ def _rmse(a: np.ndarray, b: np.ndarray) -> float:
 SYNC_REF_TMAX_C = 6.0
 
 
+def _twin_step_entry(tw: ClimateTwin, s: dict) -> dict:
+    """One REALITY-vs-TWIN step → JSON entry (shared by the REST payload and the WS stream)."""
+    from config import TMAX
+
+    twin_f = s["twin"]
+    obs_f = s["reality"]
+    entry = {
+        "lead_day": s["lead_day"],
+        "date": str(s["date"].date()),
+        "twin": _fields(twin_f),
+        "impacts_twin": tw.impacts(twin_f, s["date"]),
+    }
+    if obs_f is not None:
+        div = {cfg.VARS[c]: round(_rmse(twin_f[c], obs_f[c]), 3) for c in range(len(cfg.VARS))}
+        sync = max(0.0, 1.0 - div[cfg.VARS[TMAX]] / SYNC_REF_TMAX_C)
+        entry["reality"] = _fields(obs_f)
+        entry["divergence"] = div
+        entry["sync_pct"] = round(100.0 * sync, 1)
+        entry["impacts_reality"] = tw.impacts(obs_f, s["date"])
+    else:
+        entry["reality"] = None
+        entry["divergence"] = None
+        entry["sync_pct"] = None
+    return entry
+
+
 @lru_cache(maxsize=128)
 def _twin_run_payload(date: str, horizon: int, assimilate: bool, model: str) -> dict:
     """REALITY vs TWIN drift over the horizon, running the genuine ClimateTwin loop."""
-    from config import TMAX
-
     tw = _build_twin(model)
     steps = tw.run_twin(date, horizon=horizon, assimilate=assimilate)
-    days = []
-    for s in steps:
-        twin_f = s["twin"]
-        obs_f = s["reality"]
-        entry = {
-            "lead_day": s["lead_day"],
-            "date": str(s["date"].date()),
-            "twin": _fields(twin_f),
-            "impacts_twin": tw.impacts(twin_f, s["date"]),
-        }
-        if obs_f is not None:
-            div = {cfg.VARS[c]: round(_rmse(twin_f[c], obs_f[c]), 3) for c in range(len(cfg.VARS))}
-            sync = max(0.0, 1.0 - div[cfg.VARS[TMAX]] / SYNC_REF_TMAX_C)
-            entry["reality"] = _fields(obs_f)
-            entry["divergence"] = div
-            entry["sync_pct"] = round(100.0 * sync, 1)
-            entry["impacts_reality"] = tw.impacts(obs_f, s["date"])
-        else:
-            entry["reality"] = None
-            entry["divergence"] = None
-            entry["sync_pct"] = None
-        days.append(entry)
+    days = [_twin_step_entry(tw, s) for s in steps]
     return {
         "anchor_date": str(pd.Timestamp(date).date()),
         "model": model,
@@ -508,6 +512,66 @@ def twin_run(
         date = str(anchor.date())
     d = _validate_date(date)
     return _twin_run_payload(d, horizon, assimilate, model or S.default_model)
+
+
+@app.websocket("/ws/twin")
+async def ws_twin(ws: WebSocket):
+    """Simulated real-time twin: replays the cached record as a LIVE feed.
+
+    Honesty (CLAUDE.md §2.7): this is NOT a live IMD/MOSDAC download — it streams the
+    genuine ClimateTwin loop over the cached cube, one day at a time with a pacing delay,
+    so the dashboard's clock, assimilation ticks and TwinCore flares animate as if live
+    while the demo stays 100% offline. Query params: date, horizon, assimilate, model,
+    interval_ms (pacing, 120..3000).
+    """
+    await ws.accept()
+    try:
+        q = ws.query_params
+        horizon = max(1, min(14, int(q.get("horizon", cfg.H_HORIZON))))
+        assimilate = q.get("assimilate", "true").lower() in ("1", "true", "yes")
+        model = q.get("model") or S.default_model
+        interval = max(0.12, min(3.0, float(q.get("interval_ms", 700)) / 1000.0))
+        date = q.get("date")
+        if date:
+            date = _validate_date(date)
+        else:
+            anchor = pd.Timestamp(S.dates[-1]) - pd.Timedelta(days=horizon)
+            date = str(anchor.date())
+        if model not in S.forecasters:
+            await ws.send_json({"type": "error", "message": f"unknown model {model!r}"})
+            await ws.close()
+            return
+
+        tw = _build_twin(model)
+        steps = tw.run_twin(date, horizon=horizon, assimilate=assimilate)
+        await ws.send_json({
+            "type": "init",
+            "anchor_date": str(pd.Timestamp(date).date()),
+            "region": cfg.PILOT["name"],
+            "model": model,
+            "assimilate": assimilate,
+            "horizon": horizon,
+            "total_steps": len(steps),
+            "lat": S.lats, "lon": S.lons, "units": cfg.UNITS,
+        })
+        # stream each twin day as a live "tick", pacing with a small delay
+        for s in steps:
+            entry = _twin_step_entry(tw, s)
+            entry["type"] = "tick"
+            # flag which twin-loop stage this tick represents (drives the TwinCore flare)
+            entry["stage"] = "ASSIMILATE" if (assimilate and entry["reality"] is not None) else "SIMULATE"
+            await ws.send_json(entry)
+            await asyncio.sleep(interval)
+        await ws.send_json({"type": "done", "steps": len(steps)})
+        await ws.close()
+    except WebSocketDisconnect:
+        return  # client navigated away mid-stream; nothing to clean up
+    except Exception as e:  # never leave the socket hanging on an unexpected error
+        try:
+            await ws.send_json({"type": "error", "message": f"{type(e).__name__}: {e}"})
+            await ws.close()
+        except Exception:
+            pass
 
 
 @app.get("/validate")
