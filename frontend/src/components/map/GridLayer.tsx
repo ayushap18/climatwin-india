@@ -8,6 +8,7 @@ import type { VarName } from '../../api/types'
 import { colorForValue } from '../../lib/colormaps'
 import { cellsFor, type Cell } from '../../lib/grid'
 import { COLORS } from '../../theme'
+import { useThemeColors } from '../../lib/useThemeColors'
 
 interface Props {
   field: number[][]
@@ -34,6 +35,7 @@ export default function GridLayer({
   selected,
   onSelect,
 }: Props) {
+  const theme = useThemeColors() // themed line color for unselected cell borders
   const cells = cellsFor(field, lat, lon, res)
 
   return (
@@ -46,7 +48,7 @@ export default function GridLayer({
             key={`${c.i}-${c.j}`}
             bounds={c.bounds}
             pathOptions={{
-              color: isSel ? COLORS.saffron : COLORS.line,
+              color: isSel ? COLORS.saffron : theme.line,
               weight: isSel ? 2 : 0.5,
               opacity: isSel ? 1 : 0.4,
               fillColor: fill,

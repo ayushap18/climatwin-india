@@ -92,7 +92,7 @@ export default function CommandConsole() {
   }
 
   return (
-    <section className="z-20 border-t border-line bg-[#070b14]/95 font-mono backdrop-blur-md">
+    <section className="z-20 border-t border-line bg-panel/95 font-mono backdrop-blur-md">
       <button
         onClick={() => setCollapsed((c) => !c)}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] tracking-[0.15em] text-muted hover:text-ink"
