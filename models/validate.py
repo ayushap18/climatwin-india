@@ -128,6 +128,14 @@ def run(cube_path=None, horizons=(1, 3, 7)) -> dict:
         print("[validate] including analog ensemble")
     except Exception as e:
         print(f"[validate] analog unavailable ({type(e).__name__}: {e})")
+    # Stacked ensemble (if its weights have been fit) — many algorithms, blended honestly.
+    if (cfg.MODELS_DIR / "ensemble_weights.json").exists():
+        try:
+            from models.ensemble import EnsembleForecaster
+            forecasters["ensemble"] = EnsembleForecaster(cube=cube)
+            print("[validate] including stacked ensemble")
+        except Exception as e:
+            print(f"[validate] ensemble unavailable ({type(e).__name__}: {e})")
     # Include the trained ConvLSTM if a checkpoint exists (the model under test).
     if (cfg.CKPT_DIR / "convlstm.pt").exists():
         try:

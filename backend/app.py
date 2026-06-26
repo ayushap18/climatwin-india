@@ -92,6 +92,13 @@ async def lifespan(app: FastAPI):
             print("[backend] ConvLSTM checkpoint loaded")
         except Exception as e:
             print(f"[backend] ConvLSTM not loaded ({type(e).__name__}: {e})")
+    # stacked ensemble (if fit) — blends all members; best overall + conformal bands
+    if (cfg.MODELS_DIR / "ensemble_weights.json").exists():
+        try:
+            S.forecasters["ensemble"] = get_forecaster("ensemble", cube=S.cube)
+            print("[backend] stacked ensemble ready")
+        except Exception as e:
+            print(f"[backend] ensemble not loaded ({type(e).__name__}: {e})")
     # rain climatology for SPI-lite (compute once via a throwaway twin)
     seed_twin = ClimateTwin(S.cube, S.forecasters["climatology"], S.norm)
     S.rain_clim = seed_twin._rain_clim
@@ -124,8 +131,12 @@ async def lifespan(app: FastAPI):
             print(f"[backend] INDmet not loaded ({type(e).__name__}: {e})")
             S.indmet = None
 
-    # prefer the trained model as the default behind /forecast when present
-    S.default_model = "convlstm" if "convlstm" in S.forecasters else "climatology"
+    # prefer the best overall forecaster as the default: ensemble > convlstm > climatology
+    S.default_model = (
+        "ensemble" if "ensemble" in S.forecasters
+        else "convlstm" if "convlstm" in S.forecasters
+        else "climatology"
+    )
 
     # warm the caches for the latest date / default horizon
     latest = S.dates[-1]
@@ -304,6 +315,43 @@ def _analog_payload(date: str, horizon: int) -> dict:
     }
 
 
+@lru_cache(maxsize=256)
+def _forecast_conformal_payload(date: str, horizon: int) -> dict:
+    """Ensemble forecast + split-conformal 90% bands (calibrated, per-variable/horizon)."""
+    tw = _build_twin("ensemble")
+    tw.initialize(date)
+    preds = tw.step(horizon=horizon)
+    start = tw.current_date
+    ens = S.forecasters["ensemble"]
+    H, W = preds[0].shape[1], preds[0].shape[2]
+    days = []
+    for i, f in enumerate(preds, start=1):
+        d = start + pd.Timedelta(days=i)
+        # conformal half-width is per (variable, horizon) → a uniform band across the grid
+        std = np.stack([np.full((H, W), ens.conformal_halfwidth(v, i), dtype="float32")
+                        for v in cfg.VARS])
+        days.append({
+            "lead_day": i,
+            "date": str(d.date()),
+            "fields": _fields(f),
+            "std": _fields(std),
+            "impacts": tw.impacts(f, d),
+        })
+    return {
+        "init_date": str(start.date()),
+        "model": "ensemble",
+        "horizon": horizon,
+        "uncertainty": True,
+        "uncertainty_method": "split-conformal-90",
+        "data_source": S.data_source,
+        "lat": S.lats,
+        "lon": S.lons,
+        "units": cfg.UNITS,
+        "days": days,
+        "sowing_window": tw.sowing_window(preds),
+    }
+
+
 _DOWNSCALER = {}  # lazy singleton cache (keyed by checkpoint path)
 
 
@@ -438,6 +486,8 @@ def forecast(
             return _forecast_uncertainty_payload(d, horizon, samples)
         if resolved == "analog" and "analog" in S.forecasters:
             return _analog_payload(d, horizon)  # ensemble spread = uncertainty band
+        if resolved == "ensemble" and "ensemble" in S.forecasters:
+            return _forecast_conformal_payload(d, horizon)  # calibrated conformal bands
         # graceful fallback: deterministic forecast + a clear note (never crash)
         payload = dict(_forecast_payload(d, horizon, resolved))
         payload["uncertainty_note"] = (
