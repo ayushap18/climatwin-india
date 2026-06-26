@@ -26,7 +26,11 @@ const VIEWS: Record<ViewId, () => JSX.Element> = {
 }
 
 export default function App() {
-  const { bootStatus, activeView } = useAppState()
+  const { bootStatus, activeView, theme } = useAppState()
+
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.theme = theme
+  }
 
   if (bootStatus !== 'ready') {
     return (

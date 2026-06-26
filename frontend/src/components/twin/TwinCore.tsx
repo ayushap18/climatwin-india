@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { twinBus, type TwinStage } from '../../api/client'
-import { COLORS } from '../../theme'
+import { useThemeColors } from '../../lib/useThemeColors'
 
 const STAGES: TwinStage[] = ['MIRROR', 'ASSIMILATE', 'SIMULATE', 'PERTURB', 'IMPACT']
 
@@ -28,6 +28,7 @@ export default function TwinCore({
   centerSub,
   centerColor,
 }: Props) {
+  const c = useThemeColors()
   const [flares, setFlares] = useState<Record<string, number>>({})
   // monotonically increasing token per stage so repeated flares retrigger the animation
   const tokenRef = useRef(0)
@@ -70,9 +71,9 @@ export default function TwinCore({
     >
       <defs>
         <radialGradient id="tc-core" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor={COLORS.isro} stopOpacity="0.55" />
-          <stop offset="70%" stopColor={COLORS.isro} stopOpacity="0.08" />
-          <stop offset="100%" stopColor={COLORS.isro} stopOpacity="0" />
+          <stop offset="0%" stopColor={c.isro} stopOpacity="0.55" />
+          <stop offset="70%" stopColor={c.isro} stopOpacity="0.08" />
+          <stop offset="100%" stopColor={c.isro} stopOpacity="0" />
         </radialGradient>
       </defs>
 
@@ -85,14 +86,14 @@ export default function TwinCore({
         cy={cy}
         r={r}
         fill="none"
-        stroke={COLORS.line}
+        stroke={c.line}
         strokeWidth={Math.max(1, size * 0.006)}
       />
 
       {/* travelling saffron pulse along the ring */}
       <motion.circle
         r={nodeR * 0.6}
-        fill={COLORS.saffron}
+        fill={c.saffron}
         style={{ filter: 'drop-shadow(0 0 6px rgba(255,138,61,0.9))' }}
         initial={{ cx: points[0].x, cy: points[0].y }}
         animate={{
@@ -111,8 +112,8 @@ export default function TwinCore({
               cx={p.x}
               cy={p.y}
               r={nodeR}
-              fill={flaring ? COLORS.saffron : COLORS.panel2}
-              stroke={flaring ? COLORS.saffron : COLORS.isro}
+              fill={flaring ? c.saffron : c.panel2}
+              stroke={flaring ? c.saffron : c.isro}
               strokeWidth={Math.max(1, size * 0.005)}
               animate={
                 flaring
@@ -126,7 +127,7 @@ export default function TwinCore({
               <text
                 x={p.x + (p.x < cx ? -1 : 1) * nodeR * 1.8 * (Math.abs(p.x - cx) < 4 ? 0 : 1)}
                 y={p.y + (p.y < cy ? -nodeR * 1.8 : nodeR * 2.6)}
-                fill={flaring ? COLORS.saffron : COLORS.muted}
+                fill={flaring ? c.saffron : c.muted}
                 fontSize={Math.max(7, size * 0.034)}
                 fontFamily="JetBrains Mono, monospace"
                 textAnchor="middle"
@@ -145,7 +146,7 @@ export default function TwinCore({
           <text
             x={cx}
             y={cy - size * 0.02}
-            fill={COLORS.ink}
+            fill={c.ink}
             fontSize={Math.max(9, size * 0.05)}
             fontFamily="JetBrains Mono, monospace"
             textAnchor="middle"
@@ -156,7 +157,7 @@ export default function TwinCore({
           <text
             x={cx}
             y={cy + size * 0.07}
-            fill={centerColor ?? COLORS.online}
+            fill={centerColor ?? c.online}
             fontSize={Math.max(11, size * (centerValue ? 0.1 : 0.075))}
             fontFamily="JetBrains Mono, monospace"
             fontWeight={700}
