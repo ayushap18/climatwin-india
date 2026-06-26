@@ -4,6 +4,7 @@
 import { apiFetch, twinBus } from './client'
 import { cacheGet, cacheKey, cacheSet } from './cache'
 import type {
+  AiResp,
   DownscaleResp,
   ForecastResp,
   Health,
@@ -91,6 +92,15 @@ export async function getTwinRun(q: TwinQuery = {}): Promise<TwinRunResp> {
   window.setTimeout(() => twinBus.emit('SIMULATE'), q.assimilate ? 400 : 200)
   const qs = params.toString()
   return cacheSet(key, await apiFetch<TwinRunResp>(`/twin/run${qs ? `?${qs}` : ''}`))
+}
+
+export async function getAi(question: string): Promise<AiResp> {
+  const key = cacheKey('/ai', { q: question })
+  const hit = cacheGet<AiResp>(key)
+  if (hit) return hit
+  // the assistant ingests app data to answer -> flare ASSIMILATE
+  twinBus.emit('ASSIMILATE')
+  return cacheSet(key, await apiFetch<AiResp>(`/ai?q=${encodeURIComponent(question)}`))
 }
 
 export async function getValidate(): Promise<ValidateResp> {

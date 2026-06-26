@@ -6,13 +6,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ApiError, twinBus } from '../../api/client'
 import {
+  getAi,
   getDownscale,
   getForecast,
   getState,
   getValidate,
   postWhatIf,
 } from '../../api/endpoints'
-import type { ForecastResp, StateResp, ValidateResp, WhatIfResp } from '../../api/types'
+import type { AiResp, ForecastResp, StateResp, ValidateResp, WhatIfResp } from '../../api/types'
 import { COLORS } from '../../theme'
 import { prettyDate } from '../../lib/format'
 
@@ -24,7 +25,7 @@ interface Entry {
   message?: string
 }
 
-const COMMANDS = ['help', 'state', 'forecast', 'whatif', 'validate', 'downscale', 'clear'] as const
+const COMMANDS = ['ai', 'help', 'state', 'forecast', 'whatif', 'validate', 'downscale', 'clear'] as const
 
 let nextId = 1
 
@@ -105,7 +106,7 @@ export default function CommandConsole() {
           </span>
         )}
         <span className="ml-auto text-[9px] text-muted/50">
-          {collapsed ? 'click to open' : 'forecast · whatif · state · validate · downscale'}
+          {collapsed ? 'click to open' : 'ai · forecast · whatif · state · validate · downscale'}
         </span>
       </button>
 
@@ -137,7 +138,7 @@ export default function CommandConsole() {
               onKeyDown={onKeyDown}
               spellCheck={false}
               autoComplete="off"
-              placeholder="state 2023-05-22"
+              placeholder="ai is it a good time to sow?"
               className="flex-1 bg-transparent text-[12px] text-ink outline-none placeholder:text-muted/40"
               style={{ caretColor: COLORS.saffron }}
             />
@@ -152,10 +153,18 @@ export default function CommandConsole() {
 // command execution -> compact ReactNode
 // --------------------------------------------------------------------------- //
 async function execute(cmd: string): Promise<ReactNode> {
-  const [name, ...args] = cmd.split(/\s+/)
+  const [rawName, ...args] = cmd.split(/\s+/)
+  const name = rawName.replace(/^\//, '') // accept /ai, /state, … too
   const num = (s: string | undefined, d: number) => (s === undefined ? d : Number(s))
 
   switch (name as (typeof COMMANDS)[number]) {
+    case 'ai': {
+      const question = args.join(' ').trim()
+      if (!question)
+        return <span className="text-muted">usage: ai &lt;question&gt; — e.g. ai is it a good time to sow?</span>
+      const r = await getAi(question)
+      return <AiResult r={r} />
+    }
     case 'help':
       return <Banner />
     case 'state': {
@@ -209,11 +218,29 @@ function fmtN(n: number | null | undefined, d = 2) {
 // --------------------------------------------------------------------------- //
 // compact result renderers
 // --------------------------------------------------------------------------- //
+function AiResult({ r }: { r: AiResp }) {
+  return (
+    <div className="text-ink/90">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 shrink-0 rounded bg-saffron/15 px-1.5 py-0.5 text-[9px] tracking-[0.1em] text-saffron">
+          AI
+        </span>
+        <span className="leading-relaxed">{r.answer}</span>
+      </div>
+      <div className="mt-1 pl-8 font-mono text-[9px] text-muted/60">
+        {r.intent} · {r.provider}
+        {r.used.length ? ` · called ${r.used.join(', ')}` : ''}
+      </div>
+    </div>
+  )
+}
+
 function Banner() {
   return (
     <div className="text-muted">
-      <span className="text-ink">ClimaTwin console.</span> commands:
+      <span className="text-ink">ClimaTwin console.</span> ask the assistant or run a command:
       <div className="mt-1 grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+        <Cmd k="ai <question>" d="grounded assistant (e.g. ai when to sow?)" />
         <Cmd k="state <date>" d="observed twin state + impacts" />
         <Cmd k="forecast <date> [h] [model]" d="roll-forward + sowing" />
         <Cmd k="whatif <date> [dT] [rain×] [urb]" d="perturb + impact deltas" />

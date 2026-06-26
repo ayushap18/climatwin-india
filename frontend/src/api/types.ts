@@ -135,6 +135,15 @@ export interface WhatIfResp {
   sowing_scenario: SowingWindow
 }
 
+export interface AiResp {
+  question: string
+  intent: string
+  provider: string
+  used: string[]
+  answer: string
+  data: unknown
+}
+
 export interface TwinDay {
   lead_day: number
   date: string
