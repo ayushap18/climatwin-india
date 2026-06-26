@@ -13,6 +13,7 @@ import UncertaintyToggle from '../controls/UncertaintyToggle'
 import ForecastChart from '../panels/ForecastChart'
 import ImpactBadges from '../panels/ImpactBadges'
 import SowingCard from '../panels/SowingCard'
+import AnalogMatches from '../panels/AnalogMatches'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import { gridBounds } from '../../lib/grid'
 import { prettyDate } from '../../lib/format'
@@ -112,6 +113,7 @@ export default function Explore() {
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl border border-line bg-panel/40 p-3">
           <PanelTitle>FORECAST · {tl.activeFrame?.label ?? '—'}</PanelTitle>
           <ImpactBadges impacts={tl.activeData?.impacts ?? null} />
+          {forecast?.analogs?.length ? <AnalogMatches analogs={forecast.analogs} /> : null}
           <SowingCard sowing={forecast?.sowing_window ?? null} />
           {selectedCell && state ? (
             <div>

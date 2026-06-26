@@ -94,6 +94,12 @@ export interface ForecastResp {
   n_samples?: number
   uncertainty_method?: string
   uncertainty_note?: string
+  analogs?: AnalogMatch[] // present only for the analog (k-NN) model
+}
+
+export interface AnalogMatch {
+  date: string
+  distance: number
 }
 
 export interface WhatIfParams {
