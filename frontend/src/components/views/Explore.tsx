@@ -7,6 +7,8 @@ import DarkIndiaMap from '../map/DarkIndiaMap'
 import GridLayer from '../map/GridLayer'
 import RegionLocator from '../map/RegionLocator'
 import RainOverlay from '../map/RainOverlay'
+import { SkeletonGrid } from '../ui/Skeleton'
+import CompareModal from './CompareModal'
 import TimeSlider from '../controls/TimeSlider'
 import LayerSwitch from '../controls/LayerSwitch'
 import ColorBar from '../controls/ColorBar'
@@ -34,7 +36,8 @@ function mean2d(f: number[][]): number {
 }
 
 export default function Explore() {
-  const { state, meta, forecast, activeVariable, selectedCell, horizon, gridContrast } = useAppState()
+  const { state, meta, model, forecast, activeVariable, selectedCell, horizon, gridContrast } = useAppState()
+  const [compare, setCompare] = useState(false)
   const dispatch = useAppDispatch()
   const tl = useTimeline()
 
@@ -113,14 +116,17 @@ export default function Explore() {
                 res={rRes}
                 contrast={gridContrast}
                 pulseAbove={activeVariable === 'tmax' ? (meta?.thresholds.heat_stress_tmax_c ?? 40) : undefined}
+                seriesFor={
+                  useHr
+                    ? undefined
+                    : (i, j) => tl.frames.map((f) => tl.getData(f)?.fields[activeVariable]?.[i]?.[j] ?? NaN)
+                }
                 selected={useHr ? null : selectedCell}
                 onSelect={(cell) => dispatch({ type: 'SELECT_CELL', cell })}
               />
             </DarkIndiaMap>
           ) : (
-            <div className="grid h-full place-items-center font-mono text-xs text-muted">
-              loading grid…
-            </div>
+            <SkeletonGrid rows={9} cols={13} />
           )}
           <RainOverlay intensity={rainIntensity} />
           <RegionLocator />
@@ -169,6 +175,12 @@ export default function Explore() {
               available={!!meta?.highres_available}
               activeOk={useHr}
             />
+            <button
+              onClick={() => setCompare(true)}
+              className="w-full rounded-md border border-line px-2 py-1.5 font-mono text-[10px] tracking-[0.12em] text-muted transition-colors hover:border-isro/40 hover:text-ink"
+            >
+              ⊞ COMPARE MODELS
+            </button>
           </div>
         </div>
 
@@ -203,6 +215,19 @@ export default function Explore() {
           <ProvenanceFooter />
         </div>
       </aside>
+
+      {compare && meta && (
+        <CompareModal
+          date={meta.latest_date}
+          variable={activeVariable}
+          horizon={horizon}
+          range={range}
+          models={meta.models}
+          defaultModel={model ?? meta.default_model}
+          contrast={gridContrast}
+          onClose={() => setCompare(false)}
+        />
+      )}
     </div>
   )
 }

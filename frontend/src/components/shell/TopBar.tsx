@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { getLastLatency } from '../../api/client'
 import { clockIn } from '../../lib/format'
+import { exportNodePng } from '../../lib/exportPng'
 import { useAppState } from '../../state/useAppState'
 import TwinCore from '../twin/TwinCore'
 import SettingsPopover from './SettingsPopover'
@@ -79,8 +80,15 @@ export default function TopBar() {
         </Stat>
       </div>
 
-      {/* right: settings + persistent mini twin core */}
+      {/* right: export + settings + persistent mini twin core */}
       <div className="flex items-center gap-2 pr-3">
+        <button
+          onClick={() => exportNodePng(document.querySelector('main'), `climatwin-${Date.now()}.png`)}
+          title="export the current view as PNG"
+          className="grid h-7 w-7 place-items-center rounded-md border border-line text-muted transition-colors hover:border-isro/50 hover:text-ink"
+        >
+          <span className="font-mono text-[11px]">⤓</span>
+        </button>
         <SettingsPopover />
         <TwinCore size={48} showLabels={false} showCenter={false} />
       </div>
