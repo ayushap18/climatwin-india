@@ -32,6 +32,8 @@ export interface AppState {
   playing: boolean
   uncertainty: boolean
   selectedCell: { row: number; col: number } | null
+  gridContrast: number // 0.4..2.5, applied to all heatmap colormaps (1 = neutral)
+  globeSpin: boolean
 }
 
 const initialState: AppState = {
@@ -50,6 +52,8 @@ const initialState: AppState = {
   playing: false,
   uncertainty: false,
   selectedCell: null,
+  gridContrast: 1,
+  globeSpin: true,
 }
 
 type Action =
@@ -65,6 +69,8 @@ type Action =
   | { type: 'SET_PLAYING'; playing: boolean }
   | { type: 'SET_UNCERTAINTY'; on: boolean }
   | { type: 'SELECT_CELL'; cell: { row: number; col: number } | null }
+  | { type: 'SET_CONTRAST'; value: number }
+  | { type: 'SET_GLOBE_SPIN'; on: boolean }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -100,6 +106,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, uncertainty: action.on }
     case 'SELECT_CELL':
       return { ...state, selectedCell: action.cell }
+    case 'SET_CONTRAST':
+      return { ...state, gridContrast: action.value }
+    case 'SET_GLOBE_SPIN':
+      return { ...state, globeSpin: action.on }
     default:
       return state
   }

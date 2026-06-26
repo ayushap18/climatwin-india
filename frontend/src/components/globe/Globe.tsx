@@ -4,6 +4,7 @@
 
 import { useEffect, useRef } from 'react'
 import createGlobe from 'cobe'
+import { useAppState } from '../../state/useAppState'
 
 // Delhi-NCR center (lat, lon) from config.PILOT midpoint.
 const DELHI: [number, number] = [28.6, 77.0]
@@ -24,6 +25,11 @@ const INDIA_MARKERS: Array<{ location: [number, number]; size: number }> = [
 
 export default function Globe({ size = 360 }: { size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const { globeSpin } = useAppState()
+  const spinRef = useRef(globeSpin)
+  useEffect(() => {
+    spinRef.current = globeSpin
+  }, [globeSpin])
 
   useEffect(() => {
     let phi = 4.9 // start roughly facing India
@@ -53,7 +59,7 @@ export default function Globe({ size = 360 }: { size?: number }) {
       markers: INDIA_MARKERS,
       onRender: (state) => {
         state.phi = phi
-        phi += 0.0035
+        if (spinRef.current) phi += 0.0035 // pause rotation when globe spin is off
         state.width = width * 2
         state.height = width * 2
       },
