@@ -20,7 +20,7 @@ import pandas as pd
 import xarray as xr
 
 import config as cfg
-from config import RAIN, TMAX, TMIN
+from config import RAIN, TMAX
 from models.baselines import ClimatologyForecaster, PersistenceForecaster
 
 

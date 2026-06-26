@@ -42,7 +42,6 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from typing import Optional
 
 import numpy as np
 import xarray as xr
@@ -342,7 +341,6 @@ class Downscaler:
     def evaluate(self) -> dict:
         """RMSE vs bilinear baseline on the TEST split (physical units)."""
         cube = self._cube if self._cube is not None else xr.open_dataset(cfg.CUBE_PATH)
-        norm = json.loads(cfg.NORM_STATS_PATH.read_text())
         elev = cube["elevation"].isel(time=0).values.astype("float32")
         elev_n = norm_var(elev, elevation_stats(elev))
         bil, sr = _eval_model(self.model, cube, self.var, elev_n, self.stat, self.factor, "cpu")

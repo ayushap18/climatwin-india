@@ -21,7 +21,7 @@ Two inference modes on ``ConvLSTMForecaster``:
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -166,13 +166,12 @@ class ConvLSTMForecaster(Forecaster):
         self.model.eval()
 
         # LST exogenous lookup: real LST in the conditioning window, climatology beyond.
-        self._lst_by_date = None
         self._lst_clim = None  # (367, H, W)
+        self._lst_index = None
         if self.has_lst and cube is not None and "lst" in cube:
             lst = cube["lst"]
             self._lst_dates = pd.to_datetime(cube["time"].values)
             self._lst_arr = lst.values.astype("float32")
-            doy = self._lst_dates.dayofyear
             ty0, ty1 = cfg.SPLIT["train"]
             tr = lst.sel(time=slice(f"{ty0}-01-01", f"{ty1}-12-31"))
             clim = tr.groupby("time.dayofyear").mean("time")

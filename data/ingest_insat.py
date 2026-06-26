@@ -169,7 +169,6 @@ def download_via_mdapi(config_path=MOSDAC_CONFIG) -> int:
     Raises RuntimeError with clear guidance if it cannot proceed.
     """
     import json
-    import shutil
     import subprocess
     import sys
     import zipfile
