@@ -14,8 +14,8 @@ body,
 
 body {
   margin: 0;
-  background: #05070d;
-  color: #e8f0ff;
+  background: #030408;
+  color: #e8eefc;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -23,7 +23,7 @@ body {
 
 /* --- Leaflet dark overrides (tile-less vector map) --- */
 .leaflet-container {
-  background: #05070d;
+  background: #030408;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   outline: none;
 }
