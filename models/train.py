@@ -68,8 +68,7 @@ def make_dataset(ds: xr.Dataset, split: str, norm: dict, elev: np.ndarray, elev_
 
 
 def weighted_loss(pred, target, torch, wet_weight: float = 3.0):
-    """Wet-cell-weighted MSE on rainfall (log1p space) + MSE on tmax/tmin."""
-    # rainfall: weight cells where the (normalized) target is above its mean (i.e. >0)
+    """Wet-cell-weighted MSE on rainfall (log1p space) + MSE on tmax/tmin (3-channel head)."""
     r_pred, r_tgt = pred[:, RAIN], target[:, RAIN]
     w = 1.0 + (wet_weight - 1.0) * (r_tgt > 0).float()
     rain_loss = (w * (r_pred - r_tgt) ** 2).mean()
@@ -78,7 +77,26 @@ def weighted_loss(pred, target, torch, wet_weight: float = 3.0):
     return rain_loss + temp_loss
 
 
-def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed=SEED, patience=10):
+def two_head_loss(pred, target, torch, wet_norm_thresh: float):
+    """Two-head rainfall: BCE on P(rain) + wet-masked MSE on amount + MSE on tmax/tmin.
+
+    pred: (B,4,H,W) = [P(rain) logit, amount(log1p,norm), tmax, tmin].
+    target: (B,3,H,W) = [rainfall(log1p,norm), tmax, tmin]. Wet = target rainfall above
+    the (normalized) wet-day threshold. Handles zero-inflated rainfall the documented way.
+    """
+    import torch.nn.functional as F
+    r_tgt = target[:, RAIN]
+    wet = (r_tgt > wet_norm_thresh).float()
+    p_loss = F.binary_cross_entropy_with_logits(pred[:, 0], wet)
+    denom = wet.sum().clamp(min=1.0)
+    amount_loss = (wet * (pred[:, 1] - r_tgt) ** 2).sum() / denom     # only where it rained
+    temp_loss = ((pred[:, 2] - target[:, TMAX]) ** 2).mean() + \
+                ((pred[:, 3] - target[:, TMIN]) ** 2).mean()
+    return p_loss + amount_loss + temp_loss
+
+
+def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed=SEED,
+          patience=10, two_head=True):
     import torch
     from torch.utils.data import DataLoader, TensorDataset
 
@@ -105,10 +123,19 @@ def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed
     va = DataLoader(TensorDataset(torch.from_numpy(Xva), torch.from_numpy(Yva)),
                     batch_size=batch)
 
-    arch = {"in_ch": in_channels(has_lst), "hidden": hidden, "n_layers": n_layers, "dropout": dropout}
+    print(f"[train] rainfall head: {'TWO-HEAD (P(rain)+amount)' if two_head else 'weighted-MSE'}")
+    arch = {"in_ch": in_channels(has_lst), "hidden": hidden, "n_layers": n_layers,
+            "dropout": dropout, "out_ch": 4 if two_head else 3}
     model = build_module(**arch).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
+
+    # normalized wet-day threshold (log1p space) for the classifier target
+    rs = norm["rainfall"]
+    import numpy as _np
+    wet_thresh = (_np.log1p(cfg.RAIN_WET_DAY_MM) - rs["mean"]) / (rs["std"] or 1.0)
+    lossfn = ((lambda p, y: two_head_loss(p, y, torch, wet_thresh)) if two_head
+              else (lambda p, y: weighted_loss(p, y, torch)))
 
     best_val = float("inf")
     best_state = None
@@ -119,7 +146,7 @@ def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed
         for xb, yb in tr:
             xb, yb = xb.to(device), yb.to(device)
             opt.zero_grad()
-            loss = weighted_loss(model(xb), yb, torch)
+            loss = lossfn(model(xb), yb)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
@@ -131,7 +158,7 @@ def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed
         with torch.no_grad():
             for xb, yb in va:
                 xb, yb = xb.to(device), yb.to(device)
-                vl += weighted_loss(model(xb), yb, torch).item() * len(xb)
+                vl += lossfn(model(xb), yb).item() * len(xb)
         tl /= len(Xtr); vl /= len(Xva)
         flag = ""
         if vl < best_val - 1e-4:
@@ -156,6 +183,7 @@ def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed
         "elevation": elev.tolist(),
         "arch": arch,
         "has_lst": has_lst,
+        "two_head": two_head,
         "best_val_loss": best_val,
         "data_source": ds.attrs.get("data_source", "unknown"),
         "k_input": cfg.K_INPUT,
@@ -174,10 +202,13 @@ def main():
     p.add_argument("--lr", type=float, default=2e-3)
     p.add_argument("--batch", type=int, default=32)
     p.add_argument("--seed", type=int, default=SEED)
+    p.add_argument("--no-two-head", dest="two_head", action="store_false",
+                   help="use the legacy single weighted-MSE rainfall head")
+    p.set_defaults(two_head=True)
     args = p.parse_args()
     t0 = time.time()
     train(epochs=args.epochs, hidden=args.hidden, n_layers=args.layers,
-          lr=args.lr, batch=args.batch, seed=args.seed)
+          lr=args.lr, batch=args.batch, seed=args.seed, two_head=args.two_head)
     print(f"[train] done in {time.time() - t0:.1f}s")
 
 
