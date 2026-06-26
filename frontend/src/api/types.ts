@@ -95,3 +95,42 @@ export interface ForecastResp {
   uncertainty_method?: string
   uncertainty_note?: string
 }
+
+export interface WhatIfParams {
+  date?: string
+  horizon?: number
+  delta_temp?: number
+  rain_factor?: number
+  urban_polygon?: [number, number][] // [[lat,lon],...]
+  urban_lst?: number
+  model?: string
+}
+
+export interface WhatIfDay {
+  lead_day: number
+  date: string
+  baseline: Fields
+  scenario: Fields
+  diff: Fields
+  impacts_baseline: Impacts
+  impacts_scenario: Impacts
+}
+
+export interface WhatIfResp {
+  init_date: string
+  model: string
+  horizon: number
+  scenario_params: {
+    delta_temp: number
+    rain_factor: number
+    urban_lst: number
+    urban_cells: number
+  }
+  data_source: string
+  lat: number[]
+  lon: number[]
+  units: Record<string, string>
+  days: WhatIfDay[]
+  sowing_baseline: SowingWindow
+  sowing_scenario: SowingWindow
+}
