@@ -1,0 +1,49 @@
+// api/endpoints.ts — typed wrappers over apiFetch, each tagged with its twin stage
+// and memoized through the module-level cache. Bare paths; the client prepends the base.
+
+import { apiFetch } from './client'
+import { cacheGet, cacheKey, cacheSet } from './cache'
+import type { ForecastResp, Health, Meta, StateResp } from './types'
+
+export async function getHealth(): Promise<Health> {
+  const key = cacheKey('/health')
+  const hit = cacheGet<Health>(key)
+  if (hit) return hit
+  return cacheSet(key, await apiFetch<Health>('/health'))
+}
+
+export async function getMeta(): Promise<Meta> {
+  const key = cacheKey('/meta')
+  const hit = cacheGet<Meta>(key)
+  if (hit) return hit
+  return cacheSet(key, await apiFetch<Meta>('/meta'))
+}
+
+export async function getState(date?: string): Promise<StateResp> {
+  const key = cacheKey('/state', { date })
+  const hit = cacheGet<StateResp>(key)
+  if (hit) return hit
+  const path = date ? `/state?date=${encodeURIComponent(date)}` : '/state'
+  return cacheSet(key, await apiFetch<StateResp>(path, { stage: 'MIRROR' }))
+}
+
+export interface ForecastQuery {
+  date?: string
+  horizon?: number
+  model?: string
+  uncertainty?: boolean
+}
+
+export async function getForecast(q: ForecastQuery = {}): Promise<ForecastResp> {
+  const key = cacheKey('/forecast', { ...q })
+  const hit = cacheGet<ForecastResp>(key)
+  if (hit) return hit
+  const params = new URLSearchParams()
+  if (q.date) params.set('date', q.date)
+  if (q.horizon != null) params.set('horizon', String(q.horizon))
+  if (q.model) params.set('model', q.model)
+  if (q.uncertainty) params.set('uncertainty', 'true')
+  const qs = params.toString()
+  const path = qs ? `/forecast?${qs}` : '/forecast'
+  return cacheSet(key, await apiFetch<ForecastResp>(path, { stage: 'SIMULATE' }))
+}
