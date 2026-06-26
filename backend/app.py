@@ -378,6 +378,73 @@ def whatif(req: WhatIfRequest):
     }
 
 
+def _rmse(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.sqrt(np.mean((a.astype(float) - b.astype(float)) ** 2)))
+
+
+# sync gauge: tmax divergence of this many degC maps to 0% sync
+SYNC_REF_TMAX_C = 6.0
+
+
+@lru_cache(maxsize=128)
+def _twin_run_payload(date: str, horizon: int, assimilate: bool, model: str) -> dict:
+    """REALITY vs TWIN drift over the horizon, running the genuine ClimateTwin loop."""
+    from config import TMAX
+
+    tw = _build_twin(model)
+    steps = tw.run_twin(date, horizon=horizon, assimilate=assimilate)
+    days = []
+    for s in steps:
+        twin_f = s["twin"]
+        obs_f = s["reality"]
+        entry = {
+            "lead_day": s["lead_day"],
+            "date": str(s["date"].date()),
+            "twin": _fields(twin_f),
+            "impacts_twin": tw.impacts(twin_f, s["date"]),
+        }
+        if obs_f is not None:
+            div = {cfg.VARS[c]: round(_rmse(twin_f[c], obs_f[c]), 3) for c in range(len(cfg.VARS))}
+            sync = max(0.0, 1.0 - div[cfg.VARS[TMAX]] / SYNC_REF_TMAX_C)
+            entry["reality"] = _fields(obs_f)
+            entry["divergence"] = div
+            entry["sync_pct"] = round(100.0 * sync, 1)
+            entry["impacts_reality"] = tw.impacts(obs_f, s["date"])
+        else:
+            entry["reality"] = None
+            entry["divergence"] = None
+            entry["sync_pct"] = None
+        days.append(entry)
+    return {
+        "anchor_date": str(pd.Timestamp(date).date()),
+        "model": model,
+        "horizon": horizon,
+        "assimilate": assimilate,
+        "data_source": S.data_source,
+        "lat": S.lats,
+        "lon": S.lons,
+        "units": cfg.UNITS,
+        "sync_ref_tmax_c": SYNC_REF_TMAX_C,
+        "days": days,
+    }
+
+
+@app.get("/twin/run")
+def twin_run(
+    date: Optional[str] = Query(None, description="anchor date (MIRROR); defaults to latest-horizon"),
+    horizon: int = Query(cfg.H_HORIZON, ge=1, le=14),
+    assimilate: bool = Query(False, description="nudge the twin toward each day's observation"),
+    model: Optional[str] = Query(None, description="forecaster; defaults to best available"),
+):
+    """Run the digital-twin loop and return REALITY vs TWIN fields + divergence + sync."""
+    # default the anchor far enough back that real observations exist for every lead day
+    if date is None:
+        anchor = pd.Timestamp(S.dates[-1]) - pd.Timedelta(days=horizon)
+        date = str(anchor.date())
+    d = _validate_date(date)
+    return _twin_run_payload(d, horizon, assimilate, model or S.default_model)
+
+
 @app.get("/validate")
 def validate():
     if not cfg.METRICS_PATH.exists():
@@ -423,6 +490,86 @@ def downscale(
         "improvement_pct": round(imp, 2) if imp is not None else None,
         "data_source": ds.data_source,
     }
+
+
+# --------------------------------------------------------------------------- #
+# AI assistant — tools over the existing builders + grounded/LLM engine.
+# --------------------------------------------------------------------------- #
+def _twin_demo_model() -> str:
+    """A state-dependent model so the twin's assimilation story is visible."""
+    if "convlstm" in S.forecasters:
+        return "convlstm"
+    if "persistence" in S.forecasters:
+        return "persistence"
+    return S.default_model
+
+
+def _ai_tools() -> dict:
+    def t_state(date):
+        p = _state_payload(_validate_date(date))
+        i = p["impacts"]
+        return {"date": p["date"], "max_tmax": i["max_tmax_c"], "mean_rain": i["mean_rainfall_mm"],
+                "heat_pct": round(i["heat_stress_fraction"] * 100), "dryness": i["dryness_index"]}
+
+    def t_forecast(date, horizon):
+        p = _forecast_payload(_validate_date(date), horizon, S.default_model)
+        return {"init": p["init_date"], "model": p["model"], "horizon": p["horizon"],
+                "mean_rain": [d["impacts"]["mean_rainfall_mm"] for d in p["days"]],
+                "max_tmax": [d["impacts"]["max_tmax_c"] for d in p["days"]],
+                "sowing": p["sowing_window"]}
+
+    def t_whatif(date, dt, rf):
+        d = _validate_date(date)
+        tw = _build_twin(S.default_model)
+        tw.initialize(d)
+        res = tw.whatif(delta_temp=dt, rain_factor=rf, horizon=cfg.H_HORIZON)
+        last = tw.current_date + pd.Timedelta(days=cfg.H_HORIZON)
+        ib, isc = tw.impacts(res["baseline"][-1], last), tw.impacts(res["scenario"][-1], last)
+        return {"date": d, "delta_temp": dt, "rain_factor": rf,
+                "base_tmax": ib["max_tmax_c"], "scen_tmax": isc["max_tmax_c"],
+                "base_heat": round(ib["heat_stress_fraction"] * 100),
+                "scen_heat": round(isc["heat_stress_fraction"] * 100),
+                "base_sowing": tw.sowing_window(res["baseline"])["onset_lead_day"],
+                "scen_sowing": tw.sowing_window(res["scenario"])["onset_lead_day"]}
+
+    def t_validate():
+        if not cfg.METRICS_PATH.exists():
+            return {"error": "validation_metrics.json not found"}
+        v = json.loads(cfg.METRICS_PATH.read_text())
+        h = list(v["summary_rmse"])[0]
+        best = {var: v["summary_rmse"][h][var]["best"] for var in cfg.VARS}
+        cat = v["horizons"][h][best["rainfall"]]["rainfall"].get("categorical", {})
+        return {"horizon": h, "best": best, "pod": cat.get("POD"), "csi": cat.get("CSI")}
+
+    def t_twin(date, horizon):
+        m = _twin_demo_model()
+        # anchor far enough back that real observations exist across the lead window
+        anchor = pd.Timestamp(_validate_date(date))
+        max_anchor = pd.Timestamp(S.dates[-1]) - pd.Timedelta(days=horizon)
+        d = str(min(anchor, max_anchor).date())
+        free = _twin_run_payload(d, horizon, False, m)
+        assim = _twin_run_payload(d, horizon, True, m)
+        return {"anchor": free["anchor_date"], "model": m,
+                "free_sync": [x["sync_pct"] for x in free["days"]],
+                "assim_sync": [x["sync_pct"] for x in assim["days"]],
+                "free_drift": [x["divergence"]["tmax"] if x["divergence"] else None for x in free["days"]]}
+
+    return {"state": t_state, "forecast": t_forecast, "whatif": t_whatif,
+            "validate": t_validate, "twin": t_twin}
+
+
+@app.get("/ai")
+def ai(q: str = Query(..., min_length=1, description="natural-language question about the twin")):
+    from backend import ai_engine
+    ctx = {
+        "tools": _ai_tools(),
+        "latest_date": S.dates[-1],
+        "dates": (S.dates[0], S.dates[-1]),
+        "region": cfg.PILOT["name"],
+        "thresholds": {"heat_stress_tmax_c": cfg.HEAT_STRESS_TMAX_C, "sowing_onset_mm": cfg.SOWING_ONSET_MM},
+        "models": list(S.forecasters),
+    }
+    return ai_engine.answer(q, ctx)
 
 
 @app.get("/")

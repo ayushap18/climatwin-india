@@ -4,11 +4,13 @@
 import { apiFetch, twinBus } from './client'
 import { cacheGet, cacheKey, cacheSet } from './cache'
 import type {
+  AiResp,
   DownscaleResp,
   ForecastResp,
   Health,
   Meta,
   StateResp,
+  TwinRunResp,
   ValidateResp,
   WhatIfParams,
   WhatIfResp,
@@ -66,6 +68,39 @@ export async function postWhatIf(body: WhatIfParams): Promise<WhatIfResp> {
   window.setTimeout(() => twinBus.emit('SIMULATE'), 220)
   window.setTimeout(() => twinBus.emit('IMPACT'), 440)
   return cacheSet(key, await apiFetch<WhatIfResp>('/whatif', { method: 'POST', body }))
+}
+
+export interface TwinQuery {
+  date?: string
+  horizon?: number
+  assimilate?: boolean
+  model?: string
+}
+
+export async function getTwinRun(q: TwinQuery = {}): Promise<TwinRunResp> {
+  const key = cacheKey('/twin/run', { ...q })
+  const hit = cacheGet<TwinRunResp>(key)
+  if (hit) return hit
+  const params = new URLSearchParams()
+  if (q.date) params.set('date', q.date)
+  if (q.horizon != null) params.set('horizon', String(q.horizon))
+  if (q.assimilate) params.set('assimilate', 'true')
+  if (q.model) params.set('model', q.model)
+  // flare the loop: MIRROR (anchor) -> [ASSIMILATE] -> SIMULATE (roll forward)
+  twinBus.emit('MIRROR')
+  if (q.assimilate) window.setTimeout(() => twinBus.emit('ASSIMILATE'), 200)
+  window.setTimeout(() => twinBus.emit('SIMULATE'), q.assimilate ? 400 : 200)
+  const qs = params.toString()
+  return cacheSet(key, await apiFetch<TwinRunResp>(`/twin/run${qs ? `?${qs}` : ''}`))
+}
+
+export async function getAi(question: string): Promise<AiResp> {
+  const key = cacheKey('/ai', { q: question })
+  const hit = cacheGet<AiResp>(key)
+  if (hit) return hit
+  // the assistant ingests app data to answer -> flare ASSIMILATE
+  twinBus.emit('ASSIMILATE')
+  return cacheSet(key, await apiFetch<AiResp>(`/ai?q=${encodeURIComponent(question)}`))
 }
 
 export async function getValidate(): Promise<ValidateResp> {
