@@ -170,6 +170,36 @@ class ClimateTwin:
         std = float(self._rain_clim["std"].get(d, self._rain_clim["std"].mean())) or 1.0
         return round((float(np.mean(rain_field)) - mean) / std, 3)
 
+    # ----------------------------------------------------- (6) FULL LOOP
+    def run_twin(self, date, horizon: int = cfg.H_HORIZON, assimilate: bool = False):
+        """Run the genuine twin loop day-by-day and report REALITY vs TWIN drift.
+
+        MIRROR at `date`, then for each lead day: SIMULATE one step, compare the twin's
+        state against the actual observation (divergence), and advance the twin — either
+        free-running (autoregressive on its own prediction) or ASSIMILATING the fresh
+        observation (alpha-nudge). Returns a list of per-day dicts the API serializes.
+        Assimilation should visibly reduce drift vs the free run — that is the twin's value.
+        """
+        self.initialize(date)  # MIRROR
+        start = self.current_date
+        out = []
+        for k in range(1, horizon + 1):
+            day = start + pd.Timedelta(days=k)
+            pred = self.step(horizon=1)[0]  # SIMULATE one day
+            try:
+                obs = self._obs_at(day)
+            except Exception:
+                obs = None
+            out.append({"lead_day": k, "date": day, "twin": pred, "reality": obs})
+            # advance the twin one day
+            self.current_date = day
+            self.state = pred
+            if assimilate and obs is not None:
+                self.assimilate(obs)  # ASSIMILATE: nudge state toward reality (updates history)
+            else:
+                self.history = self.history[1:] + [pred]  # free-run on own prediction
+        return out
+
     # --------------------------------------------------------------- factory
     @classmethod
     def from_cube(cls, cube_path=None, model_name: str = "climatology", norm_path=None):

@@ -13,7 +13,7 @@ import {
 import { getForecast, getHealth, getMeta, getState } from '../api/endpoints'
 import type { ForecastResp, Health, Meta, StateResp, VarName } from '../api/types'
 
-export type ViewId = 'overview' | 'explore' | 'whatif' | 'validation' | 'downscale'
+export type ViewId = 'overview' | 'twin' | 'explore' | 'whatif' | 'validation' | 'downscale'
 export type BootStatus = 'booting' | 'ready' | 'error'
 
 export interface AppState {

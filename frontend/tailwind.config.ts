@@ -7,14 +7,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#05070d',
-        panel: '#0b1020',
-        'panel-2': '#0e1428',
-        line: '#1b2742',
-        isro: '#2b6cff',
+        bg: '#030408',
+        panel: '#070910',
+        'panel-2': '#0b0d15',
+        line: '#171b27',
+        isro: '#3a78ff',
         saffron: '#ff8a3d',
-        ink: '#e8f0ff',
-        muted: '#8aa0c8',
+        ink: '#e8eefc',
+        muted: '#7e8aa6',
         online: '#36d399',
         danger: '#ff5470',
       },
@@ -23,9 +23,9 @@ export default {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        glow: '0 0 0 1px rgba(43,108,255,0.25), 0 0 24px -4px rgba(43,108,255,0.45)',
-        'glow-saffron': '0 0 0 1px rgba(255,138,61,0.3), 0 0 24px -4px rgba(255,138,61,0.5)',
-        'glow-soft': '0 0 32px -8px rgba(43,108,255,0.35)',
+        glow: '0 0 0 1px rgba(58,120,255,0.16), 0 0 18px -6px rgba(58,120,255,0.3)',
+        'glow-saffron': '0 0 0 1px rgba(255,138,61,0.25), 0 0 20px -6px rgba(255,138,61,0.4)',
+        'glow-soft': '0 0 28px -10px rgba(58,120,255,0.22)',
       },
       keyframes: {
         'pulse-dot': {

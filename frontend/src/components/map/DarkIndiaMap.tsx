@@ -47,7 +47,7 @@ export default function DarkIndiaMap({
       attributionControl={false}
       scrollWheelZoom
       className="h-full w-full"
-      style={{ background: '#05070d' }}
+      style={{ background: '#030408' }}
     >
       {india && (
         <GeoJSON

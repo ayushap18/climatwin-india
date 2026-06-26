@@ -3,14 +3,14 @@
 // they're available both as JS tokens (here) and as utilities (bg-panel, text-saffron).
 
 export const COLORS = {
-  bg: '#05070d',
-  panel: '#0b1020',
-  panel2: '#0e1428',
-  line: '#1b2742',
-  isro: '#2b6cff',
+  bg: '#030408',
+  panel: '#070910',
+  panel2: '#0b0d15',
+  line: '#171b27',
+  isro: '#3a78ff',
   saffron: '#ff8a3d',
-  ink: '#e8f0ff',
-  muted: '#8aa0c8',
+  ink: '#e8eefc',
+  muted: '#7e8aa6',
   online: '#36d399',
   danger: '#ff5470',
 } as const

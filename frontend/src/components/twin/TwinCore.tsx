@@ -15,9 +15,19 @@ interface Props {
   size?: number
   showLabels?: boolean
   showCenter?: boolean
+  centerValue?: string // overrides the default REALITY⟷TWIN / SYNC center
+  centerSub?: string
+  centerColor?: string
 }
 
-export default function TwinCore({ size = 320, showLabels = true, showCenter = true }: Props) {
+export default function TwinCore({
+  size = 320,
+  showLabels = true,
+  showCenter = true,
+  centerValue,
+  centerSub,
+  centerColor,
+}: Props) {
   const [flares, setFlares] = useState<Record<string, number>>({})
   // monotonically increasing token per stage so repeated flares retrigger the animation
   const tokenRef = useRef(0)
@@ -141,18 +151,18 @@ export default function TwinCore({ size = 320, showLabels = true, showCenter = t
             textAnchor="middle"
             style={{ letterSpacing: '0.08em' }}
           >
-            REALITY⟷TWIN
+            {centerSub ?? 'REALITY⟷TWIN'}
           </text>
           <text
             x={cx}
-            y={cy + size * 0.06}
-            fill={COLORS.online}
-            fontSize={Math.max(11, size * 0.075)}
+            y={cy + size * 0.07}
+            fill={centerColor ?? COLORS.online}
+            fontSize={Math.max(11, size * (centerValue ? 0.1 : 0.075))}
             fontFamily="JetBrains Mono, monospace"
             fontWeight={700}
             textAnchor="middle"
           >
-            SYNC
+            {centerValue ?? 'SYNC'}
           </text>
         </g>
       )}
