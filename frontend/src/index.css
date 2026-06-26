@@ -61,6 +61,16 @@ body {
 .leaflet-tooltip.ct-tooltip::before {
   border-top-color: #1b2742;
 }
+/* light-theme tooltip — pale card with dark ink so it reads on the light map */
+:root[data-theme='light'] .leaflet-tooltip.ct-tooltip {
+  background: #ffffff;
+  border-color: #c9d4e8;
+  color: #161b26;
+  box-shadow: 0 0 16px -6px rgba(43, 108, 255, 0.35);
+}
+:root[data-theme='light'] .leaflet-tooltip.ct-tooltip::before {
+  border-top-color: #c9d4e8;
+}
 
 /* --- sidebar marquee (ISRO HACKATHON, tricolor) --- */
 @keyframes ct-marquee {

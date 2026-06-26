@@ -9,15 +9,29 @@ import type { PathOptions } from 'leaflet'
 import { loadIndiaAdm1, type IndiaFC } from '../../lib/geojson'
 import type { LatLngBounds } from '../../lib/grid'
 import { COLORS } from '../../theme'
+import { useAppState } from '../../state/useAppState'
 
-const OUTLINE_STYLE: PathOptions = {
-  color: COLORS.isro,
-  weight: 1,
-  opacity: 0.55,
-  fill: true,
-  fillColor: '#0a1228',
-  fillOpacity: 0.35,
-  interactive: false, // never intercept clicks meant for the data grid below
+// State outline styling per theme — dark = glowing blue on near-black, light = crisp blue
+// on a pale wash so the same vectors read well on paper.
+const OUTLINE_STYLE: Record<'dark' | 'light', PathOptions> = {
+  dark: {
+    color: COLORS.isro,
+    weight: 1,
+    opacity: 0.55,
+    fill: true,
+    fillColor: '#0a1228',
+    fillOpacity: 0.35,
+    interactive: false, // never intercept clicks meant for the data grid below
+  },
+  light: {
+    color: COLORS.isro,
+    weight: 1,
+    opacity: 0.8,
+    fill: true,
+    fillColor: '#dce6fb',
+    fillOpacity: 0.5,
+    interactive: false,
+  },
 }
 
 export default function DarkIndiaMap({
@@ -27,6 +41,7 @@ export default function DarkIndiaMap({
   bounds: LatLngBounds
   children?: React.ReactNode
 }) {
+  const { theme } = useAppState()
   const [india, setIndia] = useState<IndiaFC | null>(null)
 
   useEffect(() => {
@@ -47,12 +62,14 @@ export default function DarkIndiaMap({
       attributionControl={false}
       scrollWheelZoom
       className="h-full w-full"
-      style={{ background: '#030408' }}
+      // follow the themed page background instead of a fixed near-black
+      style={{ background: 'rgb(var(--bg))' }}
     >
       {india && (
         <GeoJSON
+          key={theme} // restyle outlines when the theme flips
           data={india as unknown as GeoJSON.GeoJsonObject}
-          style={() => OUTLINE_STYLE}
+          style={() => OUTLINE_STYLE[theme]}
         />
       )}
       {children}
