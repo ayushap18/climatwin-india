@@ -42,6 +42,8 @@ CKPT = cfg.CKPT_DIR / "diffusion_downscale.pt"
 FACTOR = 5            # 0.25° → 0.05°
 PAD = (48, 64)        # pad 40×60 → 48×64 so the U-Net's 3 downsamples are clean
 TIMESTEPS = 1000
+X0_CLAMP = 6.0        # residuals live in ~[-6,6] norm-log1p space; clamp x0 to keep DDIM stable
+NORM_MAX = 8.0        # clamp the reconstructed norm-log1p field before expm1 (≈ heavy-rain ceiling)
 
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +251,7 @@ def sample_ensemble(model, cond, abar, alphas, betas, dev, n: int, steps: int = 
                 eps = model(x, cond, tb)
                 ab = abar[t]
                 x0 = (x - (1 - ab).sqrt() * eps) / ab.sqrt()
+                x0 = x0.clamp(-X0_CLAMP, X0_CLAMP)  # keep DDIM from diverging (residuals are bounded)
                 if i < len(ts) - 1:
                     ab_next = abar[ts[i + 1]]
                     x = ab_next.sqrt() * x0 + (1 - ab_next).sqrt() * eps
@@ -315,7 +318,8 @@ def evaluate(ckpt=None, model_state=None, base: int = 48, n_samples: int = 8, n_
     samp = _crop(samp).cpu().numpy()[:, :, 0]                                    # (n,B,H,W) residual
     # reconstruct ensemble of fine fields = denorm(norm(bilinear) + residual)
     base_n = np.stack([norm_var(bil[t], stat) for t in range(len(te))])         # (B,H,W)
-    ens = np.clip(denorm_var(base_n[None] + samp, stat), 0, None)               # (n,B,H,W)
+    field_n = np.clip(base_n[None] + samp, -3.0, NORM_MAX)                       # clamp before expm1
+    ens = np.clip(denorm_var(field_n, stat), 0, None)                           # (n,B,H,W)
     mean = ens.mean(0)
 
     # RMSE (honest, not the point), CRPS, FSS, spectrum ratio
@@ -336,9 +340,57 @@ def evaluate(ckpt=None, model_state=None, base: int = 48, n_samples: int = 8, n_
     print(f"  CRPS↓       diffusion ensemble={crps:.3f}")
     print(f"  FSS↑@{thr}mm bilinear={fss_b:.3f}  diffusion={fss_d:.3f}")
     print(f"  hi-wavenumber power vs truth (→1 best)  bilinear={spec_b:.2f}  diffusion={spec_d:.2f}")
-    return {"bilinear_rmse": bil_rmse, "diffusion_rmse": mean_rmse, "crps": crps,
-            "fss_bilinear": fss_b, "fss_diffusion": fss_d,
-            "spec_bilinear": spec_b, "spec_diffusion": spec_d}
+    metrics = {"bilinear_rmse": round(bil_rmse, 3), "diffusion_rmse": round(mean_rmse, 3),
+               "crps": round(crps, 3), "fss_bilinear": round(fss_b, 3), "fss_diffusion": round(fss_d, 3),
+               "spec_bilinear": round(spec_b, 3), "spec_diffusion": round(spec_d, 3),
+               "threshold_mm": thr, "n_samples": n_samples, "n_days": len(te), "data_source": "indmet"}
+    import json as _json
+    (cfg.MODELS_DIR / "diffusion_metrics.json").write_text(_json.dumps(metrics, indent=2))
+    print(f"[diffusion] wrote {cfg.MODELS_DIR / 'diffusion_metrics.json'}")
+    return metrics
+
+
+# --------------------------------------------------------------------------- #
+# inference adapter (used by the backend)
+# --------------------------------------------------------------------------- #
+class DiffusionDownscaler:
+    """Loads the trained diffusion model and generates an ENSEMBLE of 0.05° fields for a
+    date (conditioned on that day's coarsened field). Served on CPU — the model is small."""
+
+    def __init__(self, ckpt_path=CKPT, cube_path=INDMET_CUBE):
+        import torch
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"no diffusion checkpoint at {ckpt_path}")
+        ck = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        self.stat = ck["norm"]["rainfall"]
+        self.base = int(ck["base"])
+        self.H, self.W = ck["fine_shape"]
+        self.lat = ck["lat"]
+        self.lon = ck["lon"]
+        self.model = build_unet(self.base)
+        self.model.load_state_dict(ck["state_dict"])
+        self.model.eval()
+        self.dev = "cpu"
+        self.betas, self.alphas, self.abar = _schedule()
+        self.ds = xr.open_dataset(cube_path)
+        self.da = self.ds["rainfall"]
+        self.dates = {str(t)[:10] for t in self.ds["time"].values}
+
+    def ensemble(self, date: str, n: int = 8, steps: int = 40) -> dict:
+        """Return {bilinear, mean, std, truth, range} (all 40×60) for one date."""
+        import torch
+        true = np.nan_to_num(self.da.sel(time=date).values.astype("float32"), nan=0.0)
+        bil = bilinear_to(block_mean_coarsen(true, FACTOR), (self.H, self.W))
+        cond = _pad(norm_var(bil, self.stat)[None, None]).to(self.dev)
+        samp = sample_ensemble(self.model, cond, self.abar, self.alphas, self.betas, self.dev, n, steps)
+        resid = _crop(samp).cpu().numpy()[:, 0, 0]                 # (n,H,W)
+        base_n = norm_var(bil, self.stat)
+        field_n = np.clip(base_n[None] + resid, -3.0, NORM_MAX)    # clamp before expm1
+        ens = np.clip(denorm_var(field_n, self.stat), 0, None)    # (n,H,W)
+        hi = float(max(np.nanpercentile(true, 98), 1.0))
+        return {"bilinear": bil, "mean": ens.mean(0), "std": ens.std(0),
+                "truth": true, "range": [0.0, round(hi, 2)],
+                "lat": self.lat, "lon": self.lon, "shape": [self.H, self.W]}
 
 
 def main():

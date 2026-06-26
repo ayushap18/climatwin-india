@@ -36,6 +36,8 @@ export interface Meta {
   lst_source: string | null
   has_lst: boolean
   downscale_available: boolean
+  diffusion_available: boolean
+  diffusion_metrics: DiffusionMetrics | null
   highres_available: boolean
   highres_res: number | null
   highres_vars: VarName[]
@@ -277,6 +279,38 @@ export interface ValidateResp {
     halfwidth: Record<VarName, Record<string, number>>
     split: { fit_years: [number, number]; calib_years: [number, number]; test_years?: [number, number] }
   }
+}
+
+export interface DiffusionMetrics {
+  bilinear_rmse: number
+  diffusion_rmse: number
+  crps: number
+  fss_bilinear: number
+  fss_diffusion: number
+  spec_bilinear: number
+  spec_diffusion: number
+  threshold_mm: number
+  n_samples: number
+  n_days: number
+  data_source: string
+}
+
+export interface DiffusionResp {
+  date: string
+  var: string
+  res_deg: number
+  samples: number
+  lat: number[]
+  lon: number[]
+  shape: [number, number]
+  range: [number, number]
+  unit: string
+  bilinear: number[][]
+  mean: number[][]
+  std: number[][]
+  truth: number[][]
+  metrics: DiffusionMetrics | null
+  note: string
 }
 
 export interface DownscaleResp {

@@ -7,6 +7,7 @@ import type {
   AiResp,
   AnomalyResp,
   BrainResp,
+  DiffusionResp,
   DownscaleResp,
   ForecastResp,
   Health,
@@ -151,4 +152,13 @@ export async function getDownscale(date?: string, varName = 'rainfall'): Promise
   const params = new URLSearchParams({ var: varName })
   if (date) params.set('date', date)
   return cacheSet(key, await apiFetch<DownscaleResp>(`/downscale?${params.toString()}`))
+}
+
+export async function getDiffusion(date?: string, samples = 6): Promise<DiffusionResp> {
+  const key = cacheKey('/downscale/diffusion', { date, samples })
+  const hit = cacheGet<DiffusionResp>(key)
+  if (hit) return hit
+  const params = new URLSearchParams({ samples: String(samples) })
+  if (date) params.set('date', date)
+  return cacheSet(key, await apiFetch<DiffusionResp>(`/downscale/diffusion?${params.toString()}`, { stage: 'SIMULATE' }))
 }
