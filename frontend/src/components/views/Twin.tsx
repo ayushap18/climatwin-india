@@ -10,11 +10,12 @@ import LayerSwitch from '../controls/LayerSwitch'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import ImpactBadges from '../panels/ImpactBadges'
 import { getTwinRun } from '../../api/endpoints'
+import { twinBus, type TwinStage } from '../../api/client'
 import type { TwinRunResp, VarName } from '../../api/types'
 import { colorForValue, colorForScale } from '../../lib/colormaps'
 import { prettyDate } from '../../lib/format'
 import { COLORS } from '../../theme'
-import { useAppState } from '../../state/useAppState'
+import { useAppDispatch, useAppState } from '../../state/useAppState'
 import {
   CartesianGrid,
   Line,
@@ -49,8 +50,23 @@ function syncColor(pct: number | null): string {
   return COLORS.danger
 }
 
+interface StageDef {
+  id: TwinStage
+  math: string
+  explain: string
+}
+const WALK: StageDef[] = [
+  { id: 'MIRROR', math: 'state ← obs(anchor)', explain: 'Initialize the twin from the observed cube at the anchor date — twin = reality, sync ~100%.' },
+  { id: 'ASSIMILATE', math: 'state = α·obs + (1−α)·state', explain: 'Nudge the twin toward each fresh observation so it tracks reality instead of drifting.' },
+  { id: 'SIMULATE', math: 'x₍ₖ₊₁₎ = f(x₍ₖ₎)', explain: 'Roll the state forward autoregressively; with no new obs the twin drifts from reality.' },
+  { id: 'PERTURB', math: 'Tmax += ΔT · rain ×= f', explain: 'Apply a counterfactual forcing and re-simulate — that’s the What-If view.' },
+  { id: 'IMPACT', math: 'Tmax > 40°C → heat', explain: 'Turn the twin’s fields into decision signals: heat-stress, dryness, sowing.' },
+]
+
 export default function Twin() {
   const { meta, activeVariable, gridContrast } = useAppState()
+  const dispatch = useAppDispatch()
+  const [stage, setStage] = useState<TwinStage | null>(null)
 
   const models = meta?.models ?? []
   const preferredModel = models.includes('convlstm')
@@ -90,6 +106,15 @@ export default function Twin() {
     setLead((l) => Math.min(Math.max(1, l), horizon))
   }, [horizon])
 
+  function runStage(s: TwinStage) {
+    setStage(s)
+    twinBus.emit(s) // flare the matching node on the ring
+    if (s === 'MIRROR') setLead(1)
+    else if (s === 'SIMULATE') setLead(horizon)
+    else if (s === 'ASSIMILATE') setAssimilate(true)
+    else if (s === 'PERTURB') dispatch({ type: 'SET_VIEW', view: 'whatif' })
+  }
+
   const day = run?.days[Math.min(lead, run.days.length) - 1] ?? null
   const range = (meta?.colorbar_ranges?.[activeVariable] ?? [0, 1]) as [number, number]
   const unit = run?.units[activeVariable] ?? ''
@@ -118,6 +143,40 @@ export default function Twin() {
           <div className="font-mono text-[10px] text-muted">
             anchor {run ? prettyDate(run.anchor_date) : '…'} · {day ? `+${day.lead_day}d` : ''}
           </div>
+        </div>
+
+        {/* stage walkthrough — click a stage to run it and read the math */}
+        <div className="border-b border-line px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {WALK.map((w, i) => {
+              const active = stage === w.id
+              return (
+                <button
+                  key={w.id}
+                  onClick={() => runStage(w.id)}
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] tracking-[0.08em] transition-colors ${
+                    active
+                      ? 'border-saffron/60 bg-saffron/10 text-saffron'
+                      : 'border-line text-muted hover:border-isro/40 hover:text-ink'
+                  }`}
+                >
+                  <span className="opacity-60">{i + 1}</span>
+                  {w.id}
+                  {i < WALK.length - 1 && <span className="ml-1 text-muted/40">→</span>}
+                </button>
+              )
+            })}
+          </div>
+          {stage && (
+            <div className="mt-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+              <code className="shrink-0 rounded border border-line bg-bg/60 px-2 py-1 font-mono text-[10px] text-online">
+                {WALK.find((w) => w.id === stage)?.math}
+              </code>
+              <span className="text-[11px] leading-snug text-muted">
+                {WALK.find((w) => w.id === stage)?.explain}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-1 flex-col items-center justify-center gap-5 p-5">
