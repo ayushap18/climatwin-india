@@ -695,7 +695,24 @@ async def ws_twin(ws: WebSocket):
 def validate():
     if not cfg.METRICS_PATH.exists():
         raise HTTPException(404, "validation_metrics.json not found. Run `make validate`.")
-    return json.loads(cfg.METRICS_PATH.read_text())
+    out = json.loads(cfg.METRICS_PATH.read_text())
+    # attach the ensemble's split-conformal calibration (verified coverage vs the 90% target)
+    wpath = cfg.MODELS_DIR / "ensemble_weights.json"
+    if wpath.exists():
+        try:
+            w = json.loads(wpath.read_text())
+            out["calibration"] = {
+                "alpha": w.get("alpha"),
+                "target": round(1.0 - float(w.get("alpha", 0.1)), 2),
+                # prefer the OUT-OF-SAMPLE test coverage (honest); fall back to calib
+                "coverage": w.get("test_coverage") or w.get("calib_coverage"),
+                "coverage_split": "test" if w.get("test_coverage") else "calib",
+                "halfwidth": w.get("conformal_halfwidth"),
+                "split": w.get("split"),
+            }
+        except Exception:
+            pass
+    return out
 
 
 @app.get("/downscale")

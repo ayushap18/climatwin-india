@@ -269,6 +269,14 @@ export interface ValidateResp {
   // summary_rmse[horizon][var] = { `${model}_RMSE`: number, best: string }
   summary_rmse: Record<string, Record<string, Record<string, number | string>>>
   models: string[]
+  calibration?: {
+    alpha: number
+    target: number
+    coverage: Record<VarName, Record<string, number>>
+    coverage_split?: 'test' | 'calib'
+    halfwidth: Record<VarName, Record<string, number>>
+    split: { fit_years: [number, number]; calib_years: [number, number]; test_years?: [number, number] }
+  }
 }
 
 export interface DownscaleResp {
