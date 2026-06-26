@@ -1,8 +1,7 @@
 // lib/grid.ts — turn the backend's regular lat/lon grid into per-cell rectangles.
-// fields[var] is a [nlat][nlon] array; fields[var][i][j] sits at (lat[i], lon[j]),
-// lat ascending S->N, lon ascending W->E. Each cell spans ±res/2 around its center.
-
-import type { Fields, StateResp, VarName } from '../api/types'
+// A field is a [nlat][nlon] array; field[i][j] sits at (lat[i], lon[j]), lat ascending
+// S->N, lon ascending W->E. Each cell spans ±res/2 around its center. Fields can come
+// from /state (observed) or any /forecast day, so these take raw arrays, not a response.
 
 export type LatLngBounds = [[number, number], [number, number]] // [[south,west],[north,east]]
 
@@ -24,10 +23,13 @@ export function cellBounds(lat: number, lon: number, res: number): LatLngBounds 
   ]
 }
 
-/** Every cell of `state` for the active variable, with value + leaflet bounds. */
-export function cellsFor(state: StateResp, variable: VarName, res: number): Cell[] {
-  const grid = (state.fields as Fields)[variable]
-  const { lat, lon } = state
+/** Every cell of `field` (a [nlat][nlon] array) with value + leaflet bounds. */
+export function cellsFor(
+  field: number[][],
+  lat: number[],
+  lon: number[],
+  res: number,
+): Cell[] {
   const cells: Cell[] = []
   for (let i = 0; i < lat.length; i++) {
     for (let j = 0; j < lon.length; j++) {
@@ -37,7 +39,7 @@ export function cellsFor(state: StateResp, variable: VarName, res: number): Cell
         lat: lat[i],
         lon: lon[j],
         bounds: cellBounds(lat[i], lon[j], res),
-        value: grid[i]?.[j] ?? NaN,
+        value: field[i]?.[j] ?? NaN,
       })
     }
   }
@@ -45,8 +47,7 @@ export function cellsFor(state: StateResp, variable: VarName, res: number): Cell
 }
 
 /** Outer bounds of the whole grid (for fitting the map view). */
-export function gridBounds(state: StateResp, res: number): LatLngBounds {
-  const { lat, lon } = state
+export function gridBounds(lat: number[], lon: number[], res: number): LatLngBounds {
   const h = res / 2
   return [
     [lat[0] - h, lon[0] - h],
