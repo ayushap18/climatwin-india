@@ -186,7 +186,8 @@ def _provider() -> str:
 def _llm_prompt(question: str, g: dict, ctx: dict) -> str:
     return (
         "You are ClimaTwin's climate assistant for the " + ctx["region"] + " region of India "
-        "(a digital twin over IMD/INSAT data; variables rainfall, tmax, tmin). "
+        "(a digital twin over India's own IMD gridded data; variables rainfall, tmax, tmin. "
+        "INSAT/satellite fusion is on the roadmap, not in the current cube). "
         "Answer the user's question in 1–3 sentences, concrete and decision-oriented. "
         "Use ONLY the JSON facts below — do not invent numbers. If they don't cover the question, say so.\n\n"
         f"FACTS: {json.dumps(g['data'], default=str)}\n"

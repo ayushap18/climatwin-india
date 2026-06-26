@@ -129,15 +129,21 @@ def run(cube_path=None, horizons=(1, 3, 7)) -> dict:
             print("[validate] including trained ConvLSTM")
         except Exception as e:
             print(f"[validate] ConvLSTM unavailable ({type(e).__name__}: {e})")
+    has_convlstm = "convlstm" in forecasters
+    note = (
+        "ConvLSTM scored against persistence + climatology on the 2022–2023 temporal "
+        "TEST split (no leakage; norm/climatology fit on train years only). Per-variable, "
+        "per-horizon winners are in summary_rmse — honestly, climatology stays hard to beat "
+        "for long-range temperature, so the win is reported only where it is real."
+        if has_convlstm else
+        "Baselines only — no ConvLSTM checkpoint found. Persistence and climatology are "
+        "the bars to beat (CLAUDE.md §2.3). Train the model, then re-run to score it here."
+    )
     out = {
         "data_source": cube.attrs.get("data_source", "unknown"),
         "split": cfg.SPLIT,
         "wet_day_threshold_mm": cfg.RAIN_WET_DAY_MM,
-        "note": (
-            "Baselines only — ConvLSTM not trained yet. Persistence and climatology are "
-            "the bars to beat (CLAUDE.md §2.3). Add the trained model as another forecaster "
-            "to score it with this same harness."
-        ),
+        "note": note,
         "lat": cube["lat"].values.tolist(),
         "lon": cube["lon"].values.tolist(),
         "horizons": {},
