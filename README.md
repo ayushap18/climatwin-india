@@ -1,96 +1,79 @@
-# ClimaTwin India — AI Digital Twin of India's Climate
+# ClimaTwin India 🌦️
 
-ISRO problem-statement PoC. An end-to-end **digital twin** (not a forecast model) built
-on India's national data: it mirrors a live gridded climate state, assimilates
-observations, simulates forward with a trained neural model, downscales, and supports
-**what-if** perturbation with decision-relevant impacts. Pilot region **Delhi-NCR**,
-variables **rainfall + Tmax/Tmin**, short-term (1–14 day). See `CLAUDE.md` for the
-locked design decisions, `files/` for full docs, `files/data_access.md` for the
-verified ISRO/IMD acquisition playbook.
+**An AI-powered digital twin of India's climate — built on India's own data (IMD + ISRO/INSAT).**
 
-> Three-stage shape aligned with NVIDIA Earth-2 / EU DestinE: **assimilate → forecast → downscale**.
+Not a forecast model — a **digital twin**: it mirrors a live gridded climate state,
+**assimilates** observations, **simulates** forward with a trained neural model,
+**downscales**, and runs **"what-if"** scenarios with decision-ready impacts.
+Pilot region **Delhi-NCR**, variables **rainfall + Tmax/Tmin**, 1–14 day horizon.
+ISRO problem-statement PoC.
+
+## Why it's different
+
+- **A real twin, not a CNN + chart** — the full loop is in code: `initialize` (mirror) ·
+  `assimilate` (nudging) · `step` (forward sim) · `whatif` (perturb) · `impacts` (decide).
+- **Indigenous data, end-to-end** — real **IMD** gridded + **INSAT-3D LST via MOSDAC**
+  (Atmanirbhar; no foreign backbone).
+- **Mirrors NVIDIA Earth-2 / EU DestinE** — same three stages: **assimilate → forecast → downscale**.
+- **Decision-ready + honest** — drought / heat-stress / sowing-window impacts, MC-dropout
+  uncertainty bands, and skill always reported **relative to baselines**.
+- **Scalable by construction** — the pilot region is one line in `config.py`.
 
 ## Quickstart
 
 ```bash
-make install          # py3.13 venv + deps (torch + tensorflow + geo/data stack)
-source .venv/bin/activate
-
-make data-lst         # real IMD cube + INSAT LST fusion  (make data = offline synthetic)
-make train            # ConvLSTM forecaster -> models/checkpoints/convlstm.pt
-make downscale        # SR-CNN downscaler   -> models/checkpoints/downscale.pt
-make validate         # metrics (baselines + ConvLSTM) -> models/validation_metrics.json
-make test             # end-to-end smoke test of every endpoint
-make serve            # FastAPI on http://127.0.0.1:8000  (docs at /docs)
+make install      # Python 3.13 venv + deps (torch + tensorflow + geo stack)
+make data-lst     # real IMD cube + INSAT LST fusion  (or `make data` = offline synthetic)
+make train        # ConvLSTM forecaster   (GPU: notebooks/ClimaTwin_Colab.ipynb)
+make downscale    # SR-CNN 1°→0.25° downscaler
+make validate     # metrics vs persistence + climatology baselines
+make serve        # FastAPI on http://127.0.0.1:8000  (interactive docs at /docs)
 ```
 
-Heavy training on a laptop is slow — use **Google Colab GPU**:
-```bash
-make bundle           # -> climatwin_bundle.zip
-# open notebooks/ClimaTwin_Colab.ipynb in Colab, upload the zip, Runtime > Run all,
-# download climatwin_trained.zip, unzip into data/ + models/checkpoints/, then `make serve`.
-```
-
-> **Python 3.13** required: TensorFlow has no 3.14 wheels; 3.13 has wheels for *both*
-> PyTorch and TensorFlow. Use `.venv/bin/python` for everything.
-
-## Architecture
-
-```
-config.py ─► data/build_cube.py ──► twin_cube.nc ─► models/baselines.py ──┐
-              ▲  └ data/ingest_insat.py (INSAT LST)        │               ├─► twin/climate_twin.py ─► backend/app.py
-         (one region knob)                                 ├─ models/convlstm.py + train.py (ConvLSTM)   (FastAPI)
-                                                           ├─ models/downscale.py (SR-CNN)
-                                                           └─ models/validate.py
-```
-
-- **`config.py`** — single source of truth (region, grid, temporal split, paths).
-  Change `PILOT` to rebuild everything for a new region with no code edits.
-- **`data/build_cube.py`** — real IMD via `imdlib`, offline synthetic fallback, optional
-  `--with-lst` INSAT fusion. Normalization stats on **train years only** (no leakage).
-- **`data/ingest_insat.py`** — indigenous **INSAT-3D LST** layer: real MOSDAC `mdapi`
-  HDF5 path **or** an offline `synthetic_demo` LST (honestly tagged) until credentials.
-- **`models/baselines.py`** — persistence + climatology (the bars to beat).
-- **`models/convlstm.py` + `train.py`** — ConvLSTM forecaster (PyTorch, CUDA/MPS). LST-aware
-  input, log1p+wet-weighted rainfall loss, autoregressive rollout, **MC-dropout uncertainty**.
-  Same `Forecaster` interface as the baselines → drops into the twin/backend unchanged.
-- **`models/downscale.py`** — SR-CNN downscaler (1°→0.25°, residual-on-bilinear, elevation
-  conditioned); evaluated on rainfall (true high-res ground truth) vs a bilinear baseline.
-- **`twin/climate_twin.py`** — the twin loop: `initialize` (mirror) · `assimilate` (nudging)
-  · `step` (forward sim) · `whatif` (perturb forcings) · `impacts` (dryness/heat/sowing).
-- **`models/validate.py`** — RMSE/MAE/corr + POD/FAR/CSI on the **temporal test split**,
-  skill relative to baselines, spatial error map.
-- **`backend/app.py`** — FastAPI; precomputes & caches common cases.
+> **Python 3.13** is required (TensorFlow has no 3.14 wheels). Heavy training runs on a free
+> **Colab GPU** via `make bundle` → `notebooks/ClimaTwin_Colab.ipynb`.
 
 ## API
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/health` | liveness + data provenance |
-| GET | `/meta` | bbox, grid, dates, vars, models, `data_source`/`lst_source`, `has_lst`, `downscale_available`, thresholds |
-| GET | `/state?date=` | observed twin state grid + impacts |
-| GET | `/forecast?date=&horizon=&model=&uncertainty=&samples=` | roll-forward fields + impacts + sowing; `uncertainty=true` adds MC-dropout **std bands** (ConvLSTM) |
-| POST | `/whatif` | perturb (ΔTemp / rain× / urban polygon) → scenario, diff, impacts |
-| GET | `/downscale?date=&var=` | SR-CNN downscaling: coarse vs bilinear vs SR-CNN + improvement % |
-| GET | `/validate` | cached validation metrics (baselines + ConvLSTM) |
+| Endpoint | Purpose |
+|---|---|
+| `GET /meta` | grid, dates, models, data provenance, thresholds |
+| `GET /state?date=` | observed twin state + impacts |
+| `GET /forecast?model=&horizon=&uncertainty=` | roll-forward fields (+ MC-dropout std bands) |
+| `POST /whatif` | perturb ΔTemp / rainfall× / urban polygon → diff map + impacts |
+| `GET /downscale?var=` | coarse vs bilinear vs SR-CNN + improvement % |
+| `GET /validate` | baseline-relative metrics (RMSE/MAE/corr, POD/FAR/CSI) |
 
-```bash
-curl "http://127.0.0.1:8000/forecast?model=convlstm&horizon=7&uncertainty=true&samples=30"
-curl "http://127.0.0.1:8000/downscale?var=rainfall"
-curl -X POST http://127.0.0.1:8000/whatif -H 'Content-Type: application/json' \
-  -d '{"date":"2023-07-15","horizon":7,"delta_temp":3,"rain_factor":0.5,
-       "urban_polygon":[[28.4,76.8],[28.4,77.6],[29.0,77.6],[29.0,76.8]],"urban_lst":2.5}'
-```
+## Results (real IMD, temporal test split, baseline-relative)
 
-## Validation (real IMD, temporal test split, baseline-relative)
-
-A short 15-epoch local run (full training is the Colab notebook). RMSE, **best in bold**:
+GPU-trained, RMSE — **best in bold**:
 
 | Lead | rainfall | tmax | tmin |
 |---|---|---|---|
-| 1-day | **convlstm 7.33** (clim 8.08, persist 9.41) | **convlstm 1.56** (persist 1.59) | **convlstm 1.08** (persist 1.20) |
-| 7-day | **convlstm 8.09** (clim 8.11) | clim 2.89 | clim 1.93 |
+| 1-day | **convlstm 7.27** (clim 8.08, persist 9.41) | persist 1.59 ≈ convlstm 1.60 | **convlstm 1.18** |
+| 3-day | **convlstm 8.01** | persist 2.74 | clim 1.95 |
 
-ConvLSTM **wins rainfall at every horizon and all three variables at 1-day**; climatology
-still wins temperature at long lead (expected for a short run — the full GPU run closes it).
-SR-CNN downscaler beats bilinear by **13.9%** on the rainfall test split.
+ConvLSTM **beats both baselines on rainfall (1d, 3d) and Tmin (1d)**; long-lead temperature goes
+to climatology (expected). SR-CNN downscaler beats bilinear by **14.4%** on rainfall.
+
+## Stack
+
+Python · PyTorch · xarray/netCDF4 · imdlib · h5py · scikit-learn · FastAPI ·
+(frontend: React + Vite + Leaflet — in progress). Data: **IMD**, **MOSDAC/INSAT** (ISRO).
+
+## Status
+
+✅ Data pipeline · baselines · ConvLSTM (+INSAT-LST fusion, uncertainty) · SR-CNN · twin loop ·
+validation · FastAPI — all working offline on real IMD data.
+🔜 React dashboard (map + time slider + what-if) · real MOSDAC INSAT granules · deck & demo.
+
+## Honesty notes
+
+Skill is always vs persistence/climatology baselines; splits are **temporal** (no leakage); the
+demo runs **offline** from a cached cube. The INSAT LST layer is currently a clearly-tagged
+`synthetic_demo` placeholder (the real MOSDAC ingestion path is built and ready); elevation is a
+placeholder pending CartoDEM.
+
+---
+
+*Build the loop. Use India's data. Validate honestly. — ClimaTwin India*

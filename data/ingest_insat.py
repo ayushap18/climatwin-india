@@ -30,6 +30,9 @@ import config as cfg
 
 RAW_INSAT_DIR = cfg.RAW_DIR / "insat"
 LST_PATH = cfg.DATA_DIR / "insat_lst.nc"
+MOSDAC_CONFIG = cfg.DATA_DIR / "mosdac_config.json"   # gitignored; copy from scripts/mosdac_config.example.json
+MDAPI_DIR = cfg.DATA_DIR / "mdapi"                    # official MOSDAC client lands here
+MDAPI_URL = "https://mosdac.gov.in/software/mdapi.zip"
 
 # Common SDS / geolocation key candidates across INSAT-3D product versions.
 _LST_KEYS = ["LST", "Land_Surface_Temperature", "lst"]
@@ -154,6 +157,81 @@ def synthetic_demo_lst(time_index: pd.DatetimeIndex, seed: int = 7) -> xr.DataAr
 
 
 # --------------------------------------------------------------------------- #
+# Real download via the official MOSDAC mdapi client (best-effort driver).
+# --------------------------------------------------------------------------- #
+def download_via_mdapi(config_path=MOSDAC_CONFIG) -> int:
+    """Fetch INSAT granules into RAW_INSAT_DIR using the official MOSDAC mdapi client.
+
+    Drives MOSDAC's own client (mdapi.py) rather than reimplementing their API, so
+    auth/throttling/format quirks are handled upstream. Requires data/mosdac_config.json
+    (copy scripts/mosdac_config.example.json, add your approved credentials).
+    Returns the number of .h5 granules present in RAW_INSAT_DIR afterward.
+    Raises RuntimeError with clear guidance if it cannot proceed.
+    """
+    import json
+    import shutil
+    import subprocess
+    import sys
+    import zipfile
+
+    if not config_path.exists():
+        raise RuntimeError(
+            f"MOSDAC config not found at {config_path}. Copy scripts/mosdac_config.example.json "
+            f"to {config_path} and fill in your approved MOSDAC username/password.")
+
+    cfg.ensure_dirs()
+    RAW_INSAT_DIR.mkdir(parents=True, exist_ok=True)
+    MDAPI_DIR.mkdir(parents=True, exist_ok=True)
+    client = MDAPI_DIR / "mdapi.py"
+
+    # 1) ensure the official client is present (the client zip is a public download).
+    if not client.exists():
+        try:
+            import requests
+            print(f"[insat] fetching MOSDAC client {MDAPI_URL}")
+            r = requests.get(MDAPI_URL, timeout=60)
+            r.raise_for_status()
+            zpath = MDAPI_DIR / "mdapi.zip"
+            zpath.write_bytes(r.content)
+            with zipfile.ZipFile(zpath) as z:
+                z.extractall(MDAPI_DIR)
+        except Exception as e:
+            raise RuntimeError(
+                f"could not obtain the MOSDAC client ({type(e).__name__}: {e}). "
+                f"Manually download {MDAPI_URL}, unzip into {MDAPI_DIR}/, and re-run. "
+                f"Alternatively, just drop INSAT-3D .h5 granules into {RAW_INSAT_DIR}/.")
+        # the zip may nest mdapi.py one level down -> find it
+        if not client.exists():
+            found = list(MDAPI_DIR.rglob("mdapi.py"))
+            if found:
+                client = found[0]
+
+    if not client.exists():
+        raise RuntimeError(
+            f"mdapi.py not found under {MDAPI_DIR}. Unzip the MOSDAC client there, or drop "
+            f".h5 granules into {RAW_INSAT_DIR}/ directly.")
+
+    # 2) hand our config to the client (it reads config.json next to itself) and run it.
+    user_cfg = json.loads(config_path.read_text())
+    user_cfg.pop("_comment", None)
+    user_cfg.setdefault("download_settings", {})["download_path"] = str(RAW_INSAT_DIR)
+    (client.parent / "config.json").write_text(json.dumps(user_cfg, indent=2))
+    print(f"[insat] running MOSDAC client: {client}")
+    proc = subprocess.run([sys.executable, client.name], cwd=str(client.parent),
+                          capture_output=True, text=True)
+    print(proc.stdout[-2000:] if proc.stdout else "")
+    if proc.returncode != 0:
+        print(proc.stderr[-2000:])
+        raise RuntimeError(
+            f"MOSDAC client exited {proc.returncode}. Check credentials/approval and "
+            f"{client.parent}/error log; or drop .h5 granules into {RAW_INSAT_DIR}/ manually.")
+
+    n = len(glob.glob(str(RAW_INSAT_DIR / "*.h5")))
+    print(f"[insat] mdapi download complete: {n} granules in {RAW_INSAT_DIR}")
+    return n
+
+
+# --------------------------------------------------------------------------- #
 # Orchestration.
 # --------------------------------------------------------------------------- #
 def build_lst(source: str = "auto", time_index: pd.DatetimeIndex | None = None) -> xr.DataArray:
@@ -164,7 +242,16 @@ def build_lst(source: str = "auto", time_index: pd.DatetimeIndex | None = None) 
     if source in ("auto", "real"):
         da = ingest_h5_dir()
         if da is None and source == "real":
-            raise RuntimeError(f"no INSAT granules in {RAW_INSAT_DIR}. Download via MOSDAC mdapi first.")
+            # no granules yet -> try the official MOSDAC client if creds are configured
+            if MOSDAC_CONFIG.exists():
+                download_via_mdapi()        # raises with guidance if it can't proceed
+                da = ingest_h5_dir()
+            if da is None:
+                raise RuntimeError(
+                    f"no INSAT granules in {RAW_INSAT_DIR} and no usable MOSDAC config at "
+                    f"{MOSDAC_CONFIG}. Either copy scripts/mosdac_config.example.json -> "
+                    f"{MOSDAC_CONFIG} with your credentials, or drop INSAT-3D .h5 granules "
+                    f"into {RAW_INSAT_DIR}/ and re-run.")
     if da is None:
         if time_index is None:
             y0, y1 = cfg.PILOT["years"]
