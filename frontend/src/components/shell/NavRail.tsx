@@ -12,6 +12,7 @@ interface NavItem {
 
 const ITEMS: NavItem[] = [
   { id: 'overview', label: 'OVERVIEW', glyph: '◎' },
+  { id: 'twin', label: 'TWIN', glyph: '⟳' },
   { id: 'explore', label: 'EXPLORE', glyph: '⬢' },
   { id: 'whatif', label: 'WHAT-IF', glyph: '⤳' },
   { id: 'validation', label: 'VALIDATION', glyph: '✓' },

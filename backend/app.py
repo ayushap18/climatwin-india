@@ -378,6 +378,73 @@ def whatif(req: WhatIfRequest):
     }
 
 
+def _rmse(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.sqrt(np.mean((a.astype(float) - b.astype(float)) ** 2)))
+
+
+# sync gauge: tmax divergence of this many degC maps to 0% sync
+SYNC_REF_TMAX_C = 6.0
+
+
+@lru_cache(maxsize=128)
+def _twin_run_payload(date: str, horizon: int, assimilate: bool, model: str) -> dict:
+    """REALITY vs TWIN drift over the horizon, running the genuine ClimateTwin loop."""
+    from config import TMAX
+
+    tw = _build_twin(model)
+    steps = tw.run_twin(date, horizon=horizon, assimilate=assimilate)
+    days = []
+    for s in steps:
+        twin_f = s["twin"]
+        obs_f = s["reality"]
+        entry = {
+            "lead_day": s["lead_day"],
+            "date": str(s["date"].date()),
+            "twin": _fields(twin_f),
+            "impacts_twin": tw.impacts(twin_f, s["date"]),
+        }
+        if obs_f is not None:
+            div = {cfg.VARS[c]: round(_rmse(twin_f[c], obs_f[c]), 3) for c in range(len(cfg.VARS))}
+            sync = max(0.0, 1.0 - div[cfg.VARS[TMAX]] / SYNC_REF_TMAX_C)
+            entry["reality"] = _fields(obs_f)
+            entry["divergence"] = div
+            entry["sync_pct"] = round(100.0 * sync, 1)
+            entry["impacts_reality"] = tw.impacts(obs_f, s["date"])
+        else:
+            entry["reality"] = None
+            entry["divergence"] = None
+            entry["sync_pct"] = None
+        days.append(entry)
+    return {
+        "anchor_date": str(pd.Timestamp(date).date()),
+        "model": model,
+        "horizon": horizon,
+        "assimilate": assimilate,
+        "data_source": S.data_source,
+        "lat": S.lats,
+        "lon": S.lons,
+        "units": cfg.UNITS,
+        "sync_ref_tmax_c": SYNC_REF_TMAX_C,
+        "days": days,
+    }
+
+
+@app.get("/twin/run")
+def twin_run(
+    date: Optional[str] = Query(None, description="anchor date (MIRROR); defaults to latest-horizon"),
+    horizon: int = Query(cfg.H_HORIZON, ge=1, le=14),
+    assimilate: bool = Query(False, description="nudge the twin toward each day's observation"),
+    model: Optional[str] = Query(None, description="forecaster; defaults to best available"),
+):
+    """Run the digital-twin loop and return REALITY vs TWIN fields + divergence + sync."""
+    # default the anchor far enough back that real observations exist for every lead day
+    if date is None:
+        anchor = pd.Timestamp(S.dates[-1]) - pd.Timedelta(days=horizon)
+        date = str(anchor.date())
+    d = _validate_date(date)
+    return _twin_run_payload(d, horizon, assimilate, model or S.default_model)
+
+
 @app.get("/validate")
 def validate():
     if not cfg.METRICS_PATH.exists():
