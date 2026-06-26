@@ -4,10 +4,16 @@
 import { COLORMAPS, sampleColormap } from '../theme'
 import type { VarName } from '../api/types'
 
-/** Normalize `value` into [0,1] across [lo,hi] (clamped). */
-export function normalize(value: number, lo: number, hi: number): number {
+/** Apply a contrast curve around the 0.5 midpoint (c>1 steepens, c<1 flattens). */
+export function applyContrast(t: number, contrast = 1): number {
+  if (contrast === 1) return t
+  return Math.max(0, Math.min(1, 0.5 + (t - 0.5) * contrast))
+}
+
+/** Normalize `value` into [0,1] across [lo,hi] (clamped), with optional contrast. */
+export function normalize(value: number, lo: number, hi: number, contrast = 1): number {
   if (hi <= lo) return 0
-  return Math.max(0, Math.min(1, (value - lo) / (hi - lo)))
+  return applyContrast(Math.max(0, Math.min(1, (value - lo) / (hi - lo))), contrast)
 }
 
 /** Color for a variable value given its [lo,hi] colorbar range. */
@@ -15,9 +21,10 @@ export function colorForValue(
   variable: VarName,
   value: number,
   range: [number, number],
+  contrast = 1,
 ): string {
   const stops = COLORMAPS[variable] ?? COLORMAPS.tmax
-  return sampleColormap(stops, normalize(value, range[0], range[1]))
+  return sampleColormap(stops, normalize(value, range[0], range[1], contrast))
 }
 
 /** Color from any named colormap for a value across an explicit [lo,hi] range. */
@@ -25,14 +32,15 @@ export function colorForScale(
   value: number,
   range: [number, number],
   key: keyof typeof COLORMAPS = 'error',
+  contrast = 1,
 ): string {
-  return sampleColormap(COLORMAPS[key], normalize(value, range[0], range[1]))
+  return sampleColormap(COLORMAPS[key], normalize(value, range[0], range[1], contrast))
 }
 
 /** Diverging color for a difference value, symmetric about 0 across ±magnitude. */
-export function colorForDiff(value: number, magnitude: number): string {
+export function colorForDiff(value: number, magnitude: number, contrast = 1): string {
   const m = magnitude || 1
-  return sampleColormap(COLORMAPS.diff, normalize(value, -m, m))
+  return sampleColormap(COLORMAPS.diff, normalize(value, -m, m, contrast))
 }
 
 /** CSS linear-gradient string for a variable's colorbar (left=lo, right=hi). */

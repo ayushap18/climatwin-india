@@ -1,10 +1,11 @@
-// Downscale.tsx — SR-CNN super-resolution demo (M6). Coarsen the true field to ~1°, then
-// compare bilinear upsampling vs the SR-CNN reconstruction at 0.25°, with the improvement %.
-// Hidden from the nav when no checkpoint exists (this deployment); renders a clear note if
-// the endpoint 503s anyway. Built so it lights up on a full backend.
+// Downscale.tsx — SR-CNN super-resolution. Coarsen the true field to ~1°, then compare
+// bilinear vs the SR-CNN reconstruction at 0.25° with an interactive reveal slider and the
+// % improvement. Hidden from the nav when no checkpoint exists; renders a designed
+// explainer (pipeline + math) if reached anyway. Built so it lights up on a full backend.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
+import InfoPopover from '../panels/InfoPopover'
 import { getDownscale } from '../../api/endpoints'
 import type { DownscaleResp, VarName } from '../../api/types'
 import { colorForValue } from '../../lib/colormaps'
@@ -25,7 +26,7 @@ function dataRange(grid: number[][]): [number, number] {
 }
 
 export default function Downscale() {
-  const { meta } = useAppState()
+  const { meta, gridContrast } = useAppState()
   const [varName, setVarName] = useState<VarName>('rainfall')
   const [ds, setDs] = useState<DownscaleResp | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -49,51 +50,45 @@ export default function Downscale() {
 
   return (
     <div className="grid h-full grid-cols-1 gap-3 p-3 lg:grid-cols-[1fr_340px]">
-      {/* ---- MAIN: coarse -> bilinear -> SR-CNN ---- */}
+      {/* ---- MAIN ---- */}
       <section className="relative flex min-h-[480px] flex-col overflow-hidden rounded-xl border border-line bg-panel/40">
         <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-          <div className="font-mono text-[11px] tracking-[0.22em] text-ink">
+          <div className="flex items-center gap-2 font-mono text-[11px] tracking-[0.22em] text-ink">
             SUPER-RESOLUTION · {varName.toUpperCase()}
+            <InfoPopover>
+              Drag the divider to wipe between the bilinear upsample and the SR-CNN
+              reconstruction of the same coarse field. Both target the true 0.25° grid.
+            </InfoPopover>
           </div>
           <div className="font-mono text-[10px] text-muted">{ds ? ds.date : ''}</div>
         </div>
 
-        <div className="flex flex-1 flex-wrap items-center justify-center gap-4 p-6">
+        {/* pipeline strip — always shown */}
+        <div className="flex items-center justify-center gap-2 border-b border-line px-4 py-2 font-mono text-[9px] text-muted">
+          <Pill>COARSE ~1°</Pill>→<Pill>BILINEAR</Pill>
+          <span className="text-muted/50">vs</span>
+          <Pill accent>SR-CNN</Pill>→
+          <span className="text-online">imp% = 100·(RMSEᵦ − RMSEₛ)/RMSEᵦ</span>
+        </div>
+
+        <div className="flex flex-1 flex-wrap items-center justify-center gap-6 p-6">
           {ds ? (
             <>
-              <Thumb title="COARSE ~1°" field={ds.coarse} varName={varName} range={range} />
-              <Arrow />
-              <Thumb
-                title="BILINEAR"
-                sub={ds.bilinear_rmse != null ? `RMSE ${ds.bilinear_rmse.toFixed(2)}` : ''}
-                field={ds.bilinear}
+              <Thumb title="COARSE INPUT ~1°" field={ds.coarse} varName={varName} range={range} contrast={gridContrast} />
+              <Reveal
+                a={ds.bilinear}
+                b={ds.srcnn}
                 varName={varName}
                 range={range}
-              />
-              <Arrow />
-              <Thumb
-                title="SR-CNN"
-                sub={ds.srcnn_rmse != null ? `RMSE ${ds.srcnn_rmse.toFixed(2)}` : ''}
-                field={ds.srcnn}
-                varName={varName}
-                range={range}
-                highlight
+                contrast={gridContrast}
+                aLabel={`BILINEAR · RMSE ${ds.bilinear_rmse?.toFixed(2) ?? '—'}`}
+                bLabel={`SR-CNN · RMSE ${ds.srcnn_rmse?.toFixed(2) ?? '—'}`}
               />
             </>
+          ) : error ? (
+            <UnavailableExplainer error={error} />
           ) : (
-            <div className="max-w-md text-center font-mono text-xs leading-relaxed text-muted">
-              {error ? (
-                <>
-                  <div className="text-danger">downscaler unavailable</div>
-                  <div className="mt-2">{error}</div>
-                  <div className="mt-2 text-muted/70">
-                    train it with <span className="text-ink">make downscale</span> to enable this view.
-                  </div>
-                </>
-              ) : (
-                'loading…'
-              )}
-            </div>
+            <div className="font-mono text-xs text-muted">loading…</div>
           )}
         </div>
       </section>
@@ -119,13 +114,13 @@ export default function Downscale() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 rounded-xl border border-line bg-panel/40 p-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl border border-line bg-panel/40 p-3">
           <PanelTitle>RECONSTRUCTION SKILL</PanelTitle>
           {ds ? (
-            <div className="mt-3 space-y-2 font-mono text-[11px]">
+            <div className="space-y-2 font-mono text-[11px]">
               <Stat label="bilinear RMSE" value={ds.bilinear_rmse?.toFixed(3) ?? '—'} />
               <Stat label="SR-CNN RMSE" value={ds.srcnn_rmse?.toFixed(3) ?? '—'} accent={COLORS.online} />
-              <div className="mt-3 rounded-md border border-online/30 bg-online/5 px-3 py-2 text-center">
+              <div className="rounded-md border border-online/30 bg-online/5 px-3 py-2 text-center">
                 <div className="text-[9px] uppercase tracking-[0.15em] text-muted">improvement</div>
                 <div className="text-xl text-online">
                   {ds.improvement_pct != null ? `${ds.improvement_pct}%` : '—'}
@@ -134,8 +129,14 @@ export default function Downscale() {
               </div>
             </div>
           ) : (
-            <div className="mt-3 font-mono text-[10px] text-muted">{error ?? 'loading…'}</div>
+            <div className="font-mono text-[10px] text-muted">{error ?? 'loading…'}</div>
           )}
+          <div className="rounded-md border border-line bg-bg/50 px-2.5 py-2 font-mono text-[9px] leading-relaxed text-muted/80">
+            <div className="mb-1 text-isro">how it works</div>
+            1 · coarsen the true 0.25° field to ~1° (block-mean).<br />
+            2 · upsample back two ways — bilinear vs a trained SR-CNN.<br />
+            3 · score each against the truth; lower RMSE wins.
+          </div>
         </div>
 
         <div className="rounded-xl border border-line bg-panel/40">
@@ -147,11 +148,19 @@ export default function Downscale() {
 }
 
 function PanelTitle({ children }: { children: React.ReactNode }) {
+  return <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">{children}</div>
+}
+function Pill({ children, accent }: { children: React.ReactNode; accent?: boolean }) {
   return (
-    <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">{children}</div>
+    <span
+      className={`rounded border px-1.5 py-0.5 ${
+        accent ? 'border-online/40 text-online' : 'border-line text-ink/80'
+      }`}
+    >
+      {children}
+    </span>
   )
 }
-
 function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div className="flex items-center justify-between rounded-md border border-line bg-panel-2/60 px-2.5 py-1.5">
@@ -163,56 +172,156 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   )
 }
 
-function Arrow() {
-  return <span className="font-mono text-lg text-muted/60">→</span>
+function UnavailableExplainer({ error }: { error: string }) {
+  return (
+    <div className="max-w-lg text-center">
+      <div className="mb-4 flex items-center justify-center gap-2">
+        <PlaceholderTile label="COARSE ~1°" />
+        <span className="text-muted/50">→</span>
+        <PlaceholderTile label="BILINEAR" />
+        <span className="text-muted/50">vs</span>
+        <PlaceholderTile label="SR-CNN" accent />
+      </div>
+      <div className="font-mono text-xs text-danger">downscaler unavailable in this deployment</div>
+      <div className="mt-2 font-mono text-[11px] leading-relaxed text-muted">{error}</div>
+      <div className="mt-3 font-mono text-[11px] text-muted/80">
+        Train the SR-CNN with <span className="text-ink">make downscale</span> and this view lights
+        up: drag-to-compare the two reconstructions with the live % improvement.
+      </div>
+    </div>
+  )
+}
+function PlaceholderTile({ label, accent }: { label: string; accent?: boolean }) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        className="h-16 w-20 rounded-md border"
+        style={{
+          borderColor: accent ? 'rgba(54,211,153,0.4)' : COLORS.line,
+          background:
+            'repeating-linear-gradient(45deg, rgba(120,140,180,0.06) 0 6px, transparent 6px 12px)',
+        }}
+      />
+      <span className="font-mono text-[9px] text-muted">{label}</span>
+    </div>
+  )
 }
 
-function Thumb({
-  title,
-  sub,
+// drag-to-reveal comparison of two fields rendered as colored grids
+function Reveal({
+  a,
+  b,
+  varName,
+  range,
+  contrast,
+  aLabel,
+  bLabel,
+}: {
+  a: number[][]
+  b: number[][]
+  varName: VarName
+  range: [number, number]
+  contrast: number
+  aLabel: string
+  bLabel: string
+}) {
+  const [pos, setPos] = useState(50)
+  const w = 300
+  const rows = b.length
+  const cols = b[0]?.length ?? 1
+  const h = (w / cols) * rows
+  const boxRef = useRef<HTMLDivElement>(null)
+  const drag = (clientX: number) => {
+    const r = boxRef.current?.getBoundingClientRect()
+    if (!r) return
+    setPos(Math.max(0, Math.min(100, ((clientX - r.left) / r.width) * 100)))
+  }
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div
+        ref={boxRef}
+        className="relative cursor-ew-resize select-none overflow-hidden rounded-md"
+        style={{ width: w, height: h, outline: `1px solid ${COLORS.line}` }}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId)
+          drag(e.clientX)
+        }}
+        onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && drag(e.clientX)}
+      >
+        <Grid field={a} varName={varName} range={range} contrast={contrast} w={w} />
+        <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
+          <Grid field={b} varName={varName} range={range} contrast={contrast} w={w} />
+        </div>
+        <div
+          className="pointer-events-none absolute inset-y-0 w-0.5 bg-saffron"
+          style={{ left: `${pos}%`, boxShadow: '0 0 8px #ff8a3d' }}
+        />
+        <span className="absolute left-1 top-1 rounded bg-bg/70 px-1 font-mono text-[8px] text-isro">
+          {aLabel}
+        </span>
+        <span className="absolute right-1 top-1 rounded bg-bg/70 px-1 font-mono text-[8px] text-online">
+          {bLabel}
+        </span>
+      </div>
+      <div className="font-mono text-[9px] text-muted">◄ drag to wipe ►</div>
+    </div>
+  )
+}
+
+function Grid({
   field,
   varName,
   range,
-  highlight,
+  contrast,
+  w,
 }: {
-  title: string
-  sub?: string
   field: number[][]
   varName: VarName
   range: [number, number]
-  highlight?: boolean
+  contrast: number
+  w: number
 }) {
-  const w = 168
   const rows = field.length
   const cols = field[0]?.length ?? 1
   const cell = w / cols
   const h = cell * rows
   return (
+    <svg width={w} height={h} className="block">
+      {field.map((row, i) =>
+        row.map((val, j) => (
+          <rect
+            key={`${i}-${j}`}
+            x={j * cell}
+            y={(rows - 1 - i) * cell}
+            width={cell + 0.5}
+            height={cell + 0.5}
+            fill={colorForValue(varName, val, range, contrast)}
+          />
+        )),
+      )}
+    </svg>
+  )
+}
+
+function Thumb({
+  title,
+  field,
+  varName,
+  range,
+  contrast = 1,
+}: {
+  title: string
+  field: number[][]
+  varName: VarName
+  range: [number, number]
+  contrast?: number
+}) {
+  return (
     <div className="flex flex-col items-center gap-1.5">
-      <svg
-        width={w}
-        height={h}
-        className="rounded-md"
-        style={{
-          boxShadow: highlight ? '0 0 24px -6px rgba(54,211,153,0.6)' : undefined,
-          outline: highlight ? '1px solid rgba(54,211,153,0.4)' : '1px solid #1b2742',
-        }}
-      >
-        {field.map((row, i) =>
-          row.map((val, j) => (
-            <rect
-              key={`${i}-${j}`}
-              x={j * cell}
-              y={(rows - 1 - i) * cell}
-              width={cell + 0.5}
-              height={cell + 0.5}
-              fill={colorForValue(varName, val, range)}
-            />
-          )),
-        )}
-      </svg>
+      <div className="rounded-md" style={{ outline: `1px solid ${COLORS.line}` }}>
+        <Grid field={field} varName={varName} range={range} contrast={contrast} w={150} />
+      </div>
       <div className="font-mono text-[10px] tracking-[0.12em] text-ink">{title}</div>
-      {sub && <div className="font-mono text-[9px] text-muted">{sub}</div>}
     </div>
   )
 }

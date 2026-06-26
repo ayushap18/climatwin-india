@@ -6,6 +6,7 @@ import { getLastLatency } from '../../api/client'
 import { clockIn } from '../../lib/format'
 import { useAppState } from '../../state/useAppState'
 import TwinCore from '../twin/TwinCore'
+import SettingsPopover from './SettingsPopover'
 
 export default function TopBar() {
   const { meta, health, model } = useAppState()
@@ -70,8 +71,9 @@ export default function TopBar() {
         </Stat>
       </div>
 
-      {/* right: persistent mini twin core */}
-      <div className="flex items-center pr-3">
+      {/* right: settings + persistent mini twin core */}
+      <div className="flex items-center gap-2 pr-3">
+        <SettingsPopover />
         <TwinCore size={48} showLabels={false} showCenter={false} />
       </div>
     </header>

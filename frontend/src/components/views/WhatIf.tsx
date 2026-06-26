@@ -24,7 +24,7 @@ function maxAbs(grid: number[][]): number {
 }
 
 export default function WhatIf() {
-  const { meta, state, model, activeVariable, horizon } = useAppState()
+  const { meta, state, model, activeVariable, horizon, gridContrast } = useAppState()
 
   const defaultDate = useMemo(
     () => (meta ? `${meta.latest_date.slice(0, 4)}-05-22` : ''),
@@ -97,7 +97,7 @@ export default function WhatIf() {
           {bounds && latArr && lonArr ? (
             <DarkIndiaMap bounds={bounds}>
               {diff && (
-                <DiffLayer diff={diff} lat={latArr} lon={lonArr} magnitude={magnitude} res={res} />
+                <DiffLayer diff={diff} lat={latArr} lon={lonArr} magnitude={magnitude} res={res} contrast={gridContrast} />
               )}
               <UrbanDrawTool
                 active={drawMode}
