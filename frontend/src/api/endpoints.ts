@@ -5,6 +5,8 @@ import { apiFetch, twinBus } from './client'
 import { cacheGet, cacheKey, cacheSet } from './cache'
 import type {
   AiResp,
+  AnomalyResp,
+  BrainResp,
   DownscaleResp,
   ForecastResp,
   Health,
@@ -110,6 +112,29 @@ export async function getAi(question: string): Promise<AiResp> {
   // the assistant ingests app data to answer -> flare ASSIMILATE
   twinBus.emit('ASSIMILATE')
   return cacheSet(key, await apiFetch<AiResp>(`/ai?q=${encodeURIComponent(question)}`))
+}
+
+/**
+ * The agentic brain: plan → execute the real twin tools → critique → grounded answer.
+ * Returns the whole trace (plan + facts + cited answer + caveat). The CommandConsole
+ * replays the plan step-by-step and flares the matching TwinCore stage per step, so the
+ * per-step twinBus emits live there — this wrapper just fetches the trace.
+ */
+export async function getBrain(question: string, date?: string): Promise<BrainResp> {
+  const key = cacheKey('/brain', { q: question, date })
+  const hit = cacheGet<BrainResp>(key)
+  if (hit) return hit
+  const p = new URLSearchParams({ q: question })
+  if (date) p.set('date', date)
+  return cacheSet(key, await apiFetch<BrainResp>(`/brain?${p.toString()}`))
+}
+
+/** Autonomous scan: a recent heat/dryness anomaly vs TRAIN-years climatology (or none). */
+export async function getAnomaly(): Promise<AnomalyResp> {
+  const key = cacheKey('/brain/anomaly')
+  const hit = cacheGet<AnomalyResp>(key)
+  if (hit) return hit
+  return cacheSet(key, await apiFetch<AnomalyResp>('/brain/anomaly'))
 }
 
 export async function getValidate(): Promise<ValidateResp> {
