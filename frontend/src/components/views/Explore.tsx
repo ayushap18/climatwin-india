@@ -21,7 +21,6 @@ import AnalogMatches from '../panels/AnalogMatches'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import HiResToggle from '../controls/HiResToggle'
 import { gridBounds } from '../../lib/grid'
-import { prettyDate } from '../../lib/format'
 import { getHighres } from '../../api/endpoints'
 import type { HighresResp } from '../../api/types'
 import { useTimeline } from '../../state/useTimeline'
@@ -38,8 +37,9 @@ function mean2d(f: number[][]): number {
 export default function Explore() {
   const { state, meta, model, forecast, activeVariable, selectedCell, horizon, gridContrast } = useAppState()
   const [compare, setCompare] = useState(false)
+  const [anchorDate, setAnchorDate] = useState<string | undefined>(undefined) // undefined → latest
   const dispatch = useAppDispatch()
-  const tl = useTimeline()
+  const tl = useTimeline(anchorDate)
 
   const res = meta?.res_deg ?? 0.25
   const range = (meta?.colorbar_ranges?.[activeVariable] ?? [0, 1]) as [number, number]
@@ -98,8 +98,25 @@ export default function Explore() {
               </span>
             )}
           </div>
-          <div className="font-mono text-[10px] text-muted">
-            {tl.activeFrame ? prettyDate(tl.activeFrame.date) : 'syncing…'}
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[9px] tracking-[0.12em] text-muted/70">ANCHOR</span>
+            <input
+              type="date"
+              value={anchorDate ?? meta?.latest_date ?? ''}
+              min={meta?.dates.start}
+              max={meta?.dates.end}
+              onChange={(e) => setAnchorDate(e.target.value || undefined)}
+              className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-mono text-[10px] text-ink [color-scheme:dark]"
+            />
+            {anchorDate && anchorDate !== meta?.latest_date && (
+              <button
+                onClick={() => setAnchorDate(undefined)}
+                title="back to the latest date"
+                className="rounded border border-line px-1.5 py-0.5 font-mono text-[9px] text-muted hover:border-isro/40 hover:text-ink"
+              >
+                NOW
+              </button>
+            )}
           </div>
         </div>
 

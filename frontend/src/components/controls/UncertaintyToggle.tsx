@@ -28,9 +28,9 @@ export default function UncertaintyToggle() {
           {uncertainty ? 'ON' : 'OFF'}
         </span>
       </button>
-      {uncertainty && note && (
+      {uncertainty && (
         <div className="mt-1.5 rounded-md border border-isro/30 bg-isro/5 px-2 py-1 font-mono text-[9px] leading-snug text-muted">
-          {note}
+          {note ?? 'click a map cell — its forecast chart (right) shows the ± band around the line.'}
         </div>
       )}
     </div>

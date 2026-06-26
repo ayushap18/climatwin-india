@@ -30,10 +30,10 @@ function addDaysISO(iso: string, n: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-export function useTimeline() {
+export function useTimeline(anchor?: string) {
   const { meta, state, forecast, horizon, model, uncertainty } = useAppState()
   const dispatch = useAppDispatch()
-  const init = meta?.latest_date ?? null
+  const init = anchor ?? meta?.latest_date ?? null
 
   const [observed, setObserved] = useState<Record<string, StateResp>>({})
 
@@ -57,7 +57,8 @@ export function useTimeline() {
     let on = true
     const start = meta.dates.start
     const dates: string[] = []
-    for (let k = PAST_DAYS; k >= 1; k--) {
+    for (let k = PAST_DAYS; k >= 0; k--) {
+      // include k=0 (the anchor itself) so the NOW frame has data for any chosen date
       const d = addDaysISO(init, -k)
       if (d >= start) dates.push(d)
     }
@@ -103,13 +104,14 @@ export function useTimeline() {
   const framesLen = frames.length
 
   const [index, setIndex] = useState(0)
-  const initializedRef = useRef(false)
+  const lastInitRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!initializedRef.current && nowIndex >= 0) {
+    // (re)center on NOW the first time and whenever the anchor date changes
+    if (nowIndex >= 0 && lastInitRef.current !== init) {
       setIndex(nowIndex)
-      initializedRef.current = true
+      lastInitRef.current = init
     }
-  }, [nowIndex])
+  }, [nowIndex, init])
   useEffect(() => {
     setIndex((i) => Math.min(Math.max(0, i), Math.max(0, framesLen - 1)))
   }, [framesLen])
