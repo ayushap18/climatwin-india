@@ -84,6 +84,7 @@ export default function TwinCore({ size = 320, showLabels = true, showCenter = t
         r={nodeR * 0.6}
         fill={COLORS.saffron}
         style={{ filter: 'drop-shadow(0 0 6px rgba(255,138,61,0.9))' }}
+        initial={{ cx: points[0].x, cy: points[0].y }}
         animate={{
           cx: points.map((p) => p.x).concat(points[0].x),
           cy: points.map((p) => p.y).concat(points[0].y),
