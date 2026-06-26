@@ -12,6 +12,7 @@ import Explore from './components/views/Explore'
 import WhatIf from './components/views/WhatIf'
 import Validation from './components/views/Validation'
 import Downscale from './components/views/Downscale'
+import CommandConsole from './components/console/CommandConsole'
 import { useAppState, type ViewId } from './state/useAppState'
 
 const VIEWS: Record<ViewId, () => JSX.Element> = {
@@ -58,6 +59,7 @@ export default function App() {
             </AnimatePresence>
           </main>
         </div>
+        <CommandConsole />
       </div>
     </>
   )

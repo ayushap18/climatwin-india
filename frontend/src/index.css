@@ -43,6 +43,21 @@ body {
   border-top-color: #1b2742;
 }
 
+/* --- console blinking cursor --- */
+@keyframes ct-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.ct-blink {
+  animation: ct-blink 1.1s step-end infinite;
+}
+
 /* --- range slider (TimeSlider) --- */
 input.ct-range {
   -webkit-appearance: none;
