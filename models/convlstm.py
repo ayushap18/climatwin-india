@@ -98,7 +98,10 @@ def _torch():
     return torch
 
 
-def build_module(in_ch: int = 6, hidden: int = 64, n_layers: int = 2, dropout: float = 0.1):
+def build_module(in_ch: int = 6, hidden: int = 64, n_layers: int = 2, dropout: float = 0.1,
+                 out_ch: int = OUT_CHANNELS):
+    """out_ch=3 -> [rainfall, tmax, tmin]; out_ch=4 -> two-head rainfall
+    [P(rain) logit, rain amount (log1p,norm), tmax, tmin]."""
     import torch
     import torch.nn as nn
 
@@ -116,7 +119,7 @@ def build_module(in_ch: int = 6, hidden: int = 64, n_layers: int = 2, dropout: f
             return o * torch.tanh(c), c
 
     class ConvLSTMNet(nn.Module):
-        def __init__(self, ic=in_ch, hid=hidden, out_ch=OUT_CHANNELS, layers=n_layers):
+        def __init__(self, ic=in_ch, hid=hidden, out_ch=out_ch, layers=n_layers):
             super().__init__()
             self.hid, self.layers = hid, layers
             self.cells = nn.ModuleList(
@@ -155,6 +158,7 @@ class ConvLSTMForecaster(Forecaster):
         self.elev_stat = ckpt["elev_stat"]
         self.elev = np.array(ckpt["elevation"], dtype="float32")
         self.has_lst = bool(ckpt.get("has_lst", False))
+        self.two_head = bool(ckpt.get("two_head", False))
         arch = dict(ckpt.get("arch", {}))
         arch.setdefault("in_ch", in_channels(self.has_lst))
         self.model = build_module(**arch)
@@ -199,10 +203,19 @@ class ConvLSTMForecaster(Forecaster):
         xt = torch.from_numpy(x[None])
         with torch.no_grad():
             out = self.model(xt)[0].numpy()
-        pred = np.empty_like(out)
-        pred[RAIN] = denorm_var(out[RAIN], self.norm["rainfall"])
-        pred[TMAX] = denorm_var(out[TMAX], self.norm["tmax"])
-        pred[TMIN] = denorm_var(out[TMIN], self.norm["tmin"])
+        H, W = out.shape[-2:]
+        pred = np.empty((3, H, W), dtype="float32")
+        if self.two_head:
+            # [P(rain) logit, amount(log1p,norm), tmax, tmin] -> expected rainfall = P(rain)*amount
+            p = 1.0 / (1.0 + np.exp(-out[0]))
+            amount = denorm_var(out[1], self.norm["rainfall"])  # expm1 + clip>=0
+            pred[RAIN] = p * amount
+            pred[TMAX] = denorm_var(out[2], self.norm["tmax"])
+            pred[TMIN] = denorm_var(out[3], self.norm["tmin"])
+        else:
+            pred[RAIN] = denorm_var(out[RAIN], self.norm["rainfall"])
+            pred[TMAX] = denorm_var(out[TMAX], self.norm["tmax"])
+            pred[TMIN] = denorm_var(out[TMIN], self.norm["tmin"])
         return pred.astype("float32")
 
     def predict_step(self, history: np.ndarray, target_date) -> np.ndarray:
