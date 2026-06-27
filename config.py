@@ -40,10 +40,11 @@ K_INPUT = 7      # input history length (days)
 H_HORIZON = 7    # default forecast horizon (days)
 MAX_HORIZON = 14 # hard ceiling on requested forecast horizon (API + agents)
 
-# The day the dashboard LANDS on by default — a curated, meteorologically *active* day
-# (a monsoon day: real rainfall + warmth) so the demo never opens on a dead winter date.
-# Users can still scrub to any date up to dates.end. Falls back to the last date if absent.
-FEATURED_DATE = "2023-08-23"
+# The day the dashboard LANDS on by default — a curated, meteorologically *active* day so the
+# demo never opens on a dead winter date with every card at zero. Picked a pre-monsoon storm
+# day where ALL impact cards light up at once: high heat (Tmax≈42°C, ~68% of cells heat-stressed)
+# AND real rainfall (~4mm). Users can still scrub to any date up to dates.end.
+FEATURED_DATE = "2001-05-16"
 
 # Rainfall thresholds / impact parameters (explainable, simple — CLAUDE.md §8).
 RAIN_WET_DAY_MM = 2.5       # rain/no-rain threshold for categorical skill

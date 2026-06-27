@@ -34,6 +34,18 @@ function mean2d(f: number[][]): number {
   return n ? s / n : 0
 }
 
+// nearest index in an ascending axis to a target value (used to map a 0.05° hi-res click
+// back onto the coarse 0.25° grid that the per-cell forecast series lives on).
+function nearestIdx(axis: number[], v: number): number {
+  let best = 0
+  let bd = Infinity
+  for (let i = 0; i < axis.length; i++) {
+    const d = Math.abs(axis[i] - v)
+    if (d < bd) { bd = d; best = i }
+  }
+  return best
+}
+
 export default function Explore() {
   const { state, meta, model, forecast, activeVariable, selectedCell, horizon, gridContrast } = useAppState()
   const [compare, setCompare] = useState(false)
@@ -139,7 +151,19 @@ export default function Explore() {
                     : (i, j) => tl.frames.map((f) => tl.getData(f)?.fields[activeVariable]?.[i]?.[j] ?? NaN)
                 }
                 selected={useHr ? null : selectedCell}
-                onSelect={(cell) => dispatch({ type: 'SELECT_CELL', cell })}
+                onSelect={(cell) => {
+                  // in 0.05° hi-res mode the grid is 40×60 — map the clicked pixel back to the
+                  // coarse 0.25° cell that contains it, so the per-cell forecast series (which
+                  // lives on the 9×13 grid) stays in range instead of reading undefined → 0.
+                  if (useHr && hr && state) {
+                    dispatch({
+                      type: 'SELECT_CELL',
+                      cell: { row: nearestIdx(state.lat, hr.lat[cell.row]), col: nearestIdx(state.lon, hr.lon[cell.col]) },
+                    })
+                  } else {
+                    dispatch({ type: 'SELECT_CELL', cell })
+                  }
+                }}
               />
             </DarkIndiaMap>
           ) : (
@@ -206,7 +230,7 @@ export default function Explore() {
           <ImpactBadges impacts={tl.activeData?.impacts ?? null} />
           {forecast?.analogs?.length ? <AnalogMatches analogs={forecast.analogs} /> : null}
           <SowingCard sowing={forecast?.sowing_window ?? null} />
-          {selectedCell && state ? (
+          {selectedCell && state && selectedCell.row < state.lat.length && selectedCell.col < state.lon.length ? (
             <div>
               <div className="mb-1 font-mono text-[10px] text-muted">
                 CELL {state.lat[selectedCell.row]?.toFixed(2)}°N,{' '}
