@@ -1,0 +1,14 @@
+{
+  "var": "tmin",
+  "bilinear_rmse": 0.125,
+  "diffusion_rmse": 0.268,
+  "crps": 0.051,
+  "fss_bilinear": null,
+  "fss_diffusion": null,
+  "spec_bilinear": 0.627,
+  "spec_diffusion": 1.953,
+  "threshold_mm": null,
+  "n_samples": 8,
+  "n_days": 120,
+  "data_source": "indmet"
+}
