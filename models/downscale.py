@@ -146,17 +146,20 @@ def _split_fields(ds: xr.Dataset, var: str, split: str) -> np.ndarray:
     return sub.values.astype("float32")  # (T, H, W)
 
 
-def _make_pairs(fields: np.ndarray, elev_n: np.ndarray, stat: dict, factor: int):
-    """fields: (T,H,W) raw. Returns X (T,2,H,W), Y (T,1,H,W), bil_raw (T,H,W)."""
+def _make_pairs(fields: np.ndarray, elev_n: np.ndarray, stat: dict, factor: int, use_elev: bool = True):
+    """fields: (T,H,W) raw. Returns X (T,C,H,W) with C=2 (bilinear+elevation) or C=1
+    (bilinear only, for the no-DEM ablation), Y (T,1,H,W), bil_raw (T,H,W)."""
     T, H, W = fields.shape
-    X = np.zeros((T, 2, H, W), dtype="float32")
+    C = 2 if use_elev else 1
+    X = np.zeros((T, C, H, W), dtype="float32")
     Y = np.zeros((T, 1, H, W), dtype="float32")
     bil_raw = np.zeros((T, H, W), dtype="float32")
     for t in range(T):
         b = coarse_input(fields[t], factor)
         bil_raw[t] = b
         X[t, 0] = norm_var(b, stat)
-        X[t, 1] = elev_n
+        if use_elev:
+            X[t, 1] = elev_n
         Y[t, 0] = norm_var(fields[t], stat)
     return X, Y, bil_raw
 
@@ -174,7 +177,10 @@ def _load_context(cube=None):
 # Training.
 # --------------------------------------------------------------------------- #
 def train(var: str = "rainfall", epochs: int = 80, hidden: int = 64, lr: float = 2e-3,
-          batch: int = 32, seed: int = 0, factor: int = DEFAULT_FACTOR, patience: int = 12):
+          batch: int = 32, seed: int = 0, factor: int = DEFAULT_FACTOR, patience: int = 12,
+          use_elev: bool = True, out_name: str = "downscale.pt"):
+    """Train the SR-CNN. With use_elev=False the elevation (DEM) channel is dropped — the
+    no-DEM arm of the ablation. Returns (bilinear_rmse, srcnn_rmse) on the TEST split."""
     import torch
     from torch.utils.data import DataLoader, TensorDataset
 
@@ -187,7 +193,7 @@ def train(var: str = "rainfall", epochs: int = 80, hidden: int = 64, lr: float =
     torch.manual_seed(seed)
     np.random.seed(seed)
     device = _device()
-    print(f"[downscale] device={device}  var={var}  factor={factor}")
+    print(f"[downscale] device={device}  var={var}  factor={factor}  DEM={'on' if use_elev else 'OFF'}")
 
     cfg.ensure_dirs()
     ds, norm, elev, elev_stat = _load_context()
@@ -196,8 +202,8 @@ def train(var: str = "rainfall", epochs: int = 80, hidden: int = 64, lr: float =
 
     tr_fields = _split_fields(ds, var, "train")
     va_fields = _split_fields(ds, var, "val")
-    Xtr, Ytr, _ = _make_pairs(tr_fields, elev_n, stat, factor)
-    Xva, Yva, _ = _make_pairs(va_fields, elev_n, stat, factor)
+    Xtr, Ytr, _ = _make_pairs(tr_fields, elev_n, stat, factor, use_elev)
+    Xva, Yva, _ = _make_pairs(va_fields, elev_n, stat, factor, use_elev)
     print(f"[downscale] train days={len(Xtr)}  val days={len(Xva)}  grid={elev.shape}")
 
     tr = DataLoader(TensorDataset(torch.from_numpy(Xtr), torch.from_numpy(Ytr)),
@@ -205,7 +211,7 @@ def train(var: str = "rainfall", epochs: int = 80, hidden: int = 64, lr: float =
     va = DataLoader(TensorDataset(torch.from_numpy(Xva), torch.from_numpy(Yva)),
                     batch_size=batch)
 
-    arch = {"in_ch": 2, "hidden": hidden}
+    arch = {"in_ch": 2 if use_elev else 1, "hidden": hidden}
     model = build_module(**arch).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
@@ -251,13 +257,13 @@ def train(var: str = "rainfall", epochs: int = 80, hidden: int = 64, lr: float =
         model.load_state_dict(best_state)
 
     # ---- TEST-split skill vs bilinear baseline (physical units) ----------
-    bil_rmse, sr_rmse = _eval_model(model, ds, var, elev_n, stat, factor, device)
+    bil_rmse, sr_rmse = _eval_model(model, ds, var, elev_n, stat, factor, device, use_elev)
     imp = 100.0 * (bil_rmse - sr_rmse) / bil_rmse if bil_rmse else float("nan")
     print(f"[downscale] TEST  bilinear_rmse={bil_rmse:.4f}  srcnn_rmse={sr_rmse:.4f}  "
           f"improvement={imp:.1f}%")
 
     cfg.CKPT_DIR.mkdir(parents=True, exist_ok=True)
-    out = cfg.CKPT_DIR / "downscale.pt"
+    out = cfg.CKPT_DIR / out_name
     torch.save({
         "state_dict": best_state or model.state_dict(),
         "var": var,
@@ -266,6 +272,7 @@ def train(var: str = "rainfall", epochs: int = 80, hidden: int = 64, lr: float =
         "elevation": elev.tolist(),
         "arch": arch,
         "factor": factor,
+        "use_elev": use_elev,
         "data_source": ds.attrs.get("data_source", "unknown"),
         "bilinear_rmse": bil_rmse,
         "srcnn_rmse": sr_rmse,
@@ -273,15 +280,15 @@ def train(var: str = "rainfall", epochs: int = 80, hidden: int = 64, lr: float =
         "seed": seed,
     }, out)
     print(f"[downscale] saved {out}")
-    return out
+    return bil_rmse, sr_rmse
 
 
-def _eval_model(model, ds, var, elev_n, stat, factor, device):
+def _eval_model(model, ds, var, elev_n, stat, factor, device, use_elev: bool = True):
     """Return (bilinear_rmse, srcnn_rmse) in physical units on the TEST split."""
     import torch
 
     fields = _split_fields(ds, var, "test")
-    X, _, bil_raw = _make_pairs(fields, elev_n, stat, factor)
+    X, _, bil_raw = _make_pairs(fields, elev_n, stat, factor, use_elev)
     model.eval()
     with torch.no_grad():
         out_n = model(torch.from_numpy(X).to(device)).cpu().numpy()[:, 0]  # (T,H,W) norm
@@ -349,6 +356,39 @@ class Downscaler:
 
 
 # --------------------------------------------------------------------------- #
+# DEM ablation — does the OpenTopography elevation channel actually help?
+# --------------------------------------------------------------------------- #
+def ablation(var: str = "rainfall", epochs: int = 80, hidden: int = 64, lr: float = 2e-3,
+             batch: int = 32, seed: int = 0, factor: int = DEFAULT_FACTOR) -> dict:
+    """Train two SR-CNNs under IDENTICAL settings — one WITH the real DEM (elevation) channel,
+    one WITHOUT — and compare TEST-split RMSE. Writes models/downscale_ablation.json. This is
+    the honest 'does the OpenTopography elevation actually improve downscaling?' answer."""
+    print("[ablation] === arm 1: WITH the real DEM (elevation channel) ===")
+    bil_w, sr_with = train(var=var, epochs=epochs, hidden=hidden, lr=lr, batch=batch,
+                           seed=seed, factor=factor, use_elev=True, out_name="downscale.pt")
+    print("[ablation] === arm 2: WITHOUT the DEM (bilinear only) ===")
+    bil_n, sr_no = train(var=var, epochs=epochs, hidden=hidden, lr=lr, batch=batch,
+                         seed=seed, factor=factor, use_elev=False, out_name="downscale_noelev.pt")
+    bil = (bil_w + bil_n) / 2.0  # bilinear is DEM-independent; average guards float drift
+    imp_with = 100.0 * (bil - sr_with) / bil if bil else float("nan")
+    imp_no = 100.0 * (bil - sr_no) / bil if bil else float("nan")
+    dem_gain = 100.0 * (sr_no - sr_with) / sr_no if sr_no else float("nan")  # error cut by the DEM
+    res = {
+        "var": var, "bilinear_rmse": round(bil, 4),
+        "srcnn_with_dem_rmse": round(sr_with, 4), "srcnn_no_dem_rmse": round(sr_no, 4),
+        "improvement_with_dem_pct": round(imp_with, 1), "improvement_no_dem_pct": round(imp_no, 1),
+        "dem_gain_pct": round(dem_gain, 1), "epochs": epochs, "seed": seed,
+        "dem_source": "Copernicus GLO-30 (OpenTopography) / CartoDEM-class",
+    }
+    path = cfg.MODELS_DIR / "downscale_ablation.json"
+    path.write_text(json.dumps(res, indent=2))
+    print(f"[ablation] bilinear={bil:.4f}  with-DEM={sr_with:.4f} ({imp_with:.1f}%)  "
+          f"no-DEM={sr_no:.4f} ({imp_no:.1f}%)  → DEM cuts SR error by {dem_gain:.1f}%")
+    print(f"[ablation] wrote {path}")
+    return res
+
+
+# --------------------------------------------------------------------------- #
 # CLI.
 # --------------------------------------------------------------------------- #
 def main():
@@ -360,10 +400,16 @@ def main():
     p.add_argument("--batch", type=int, default=32)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--factor", type=int, default=DEFAULT_FACTOR)
+    p.add_argument("--ablation", action="store_true",
+                   help="train with vs without the DEM and write downscale_ablation.json")
     args = p.parse_args()
     t0 = time.time()
-    train(var=args.var, epochs=args.epochs, hidden=args.hidden, lr=args.lr,
-          batch=args.batch, seed=args.seed, factor=args.factor)
+    if args.ablation:
+        ablation(var=args.var, epochs=args.epochs, hidden=args.hidden, lr=args.lr,
+                 batch=args.batch, seed=args.seed, factor=args.factor)
+    else:
+        train(var=args.var, epochs=args.epochs, hidden=args.hidden, lr=args.lr,
+              batch=args.batch, seed=args.seed, factor=args.factor)
     print(f"[downscale] done in {time.time() - t0:.1f}s")
 
 

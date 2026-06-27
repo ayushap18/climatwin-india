@@ -201,6 +201,34 @@ export default function Downscale() {
                 </div>
                 <div className="text-[9px] text-muted">SR-CNN vs bilinear (RMSE)</div>
               </div>
+
+              {ds.dem_ablation && varName === ds.dem_ablation.var && (
+                <div className="rounded-md border border-saffron/30 bg-saffron/5 p-2.5">
+                  <div className="mb-1.5 text-[9px] uppercase tracking-[0.15em] text-saffron">
+                    ⛰ DEM ablation — does the elevation help?
+                  </div>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-ink">with DEM</span>
+                    <span className="text-saffron">
+                      {ds.dem_ablation.improvement_with_dem_pct}%
+                      <span className="text-muted/60"> · RMSE {ds.dem_ablation.srcnn_with_dem_rmse.toFixed(2)}</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-muted">without DEM</span>
+                    <span className="text-muted">
+                      {ds.dem_ablation.improvement_no_dem_pct}%
+                      <span className="text-muted/60"> · RMSE {ds.dem_ablation.srcnn_no_dem_rmse.toFixed(2)}</span>
+                    </span>
+                  </div>
+                  <div className="mt-1.5 text-center text-[10px] text-ink">
+                    the real DEM cuts SR error by <span className="text-saffron">{ds.dem_ablation.dem_gain_pct}%</span>
+                  </div>
+                  <div className="mt-0.5 text-center text-[8px] leading-snug text-muted/70">
+                    identical SR-CNNs ± the OpenTopography elevation channel · test split · modest at 0.25°, grows with region
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="font-mono text-[10px] text-muted">{error ?? 'loading…'}</div>

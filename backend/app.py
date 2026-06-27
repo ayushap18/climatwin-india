@@ -764,6 +764,9 @@ def downscale(
         "srcnn_rmse": sr_rmse,
         "improvement_pct": round(imp, 2) if imp is not None else None,
         "data_source": ds.data_source,
+        # DEM ablation (with vs without the OpenTopography elevation channel), if computed
+        "dem_ablation": (json.loads((cfg.MODELS_DIR / "downscale_ablation.json").read_text())
+                         if (cfg.MODELS_DIR / "downscale_ablation.json").exists() else None),
     }
 
 

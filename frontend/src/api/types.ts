@@ -336,6 +336,19 @@ export interface DiffusionResp {
   note: string
 }
 
+export interface DemAblation {
+  var: string
+  bilinear_rmse: number
+  srcnn_with_dem_rmse: number
+  srcnn_no_dem_rmse: number
+  improvement_with_dem_pct: number
+  improvement_no_dem_pct: number
+  dem_gain_pct: number
+  epochs: number
+  seed: number
+  dem_source: string
+}
+
 export interface DownscaleResp {
   var: string
   date: string
@@ -350,4 +363,5 @@ export interface DownscaleResp {
   srcnn_rmse: number | null
   improvement_pct: number | null
   data_source: string
+  dem_ablation: DemAblation | null
 }

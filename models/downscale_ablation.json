@@ -1,0 +1,12 @@
+{
+  "var": "rainfall",
+  "bilinear_rmse": 5.2473,
+  "srcnn_with_dem_rmse": 4.3259,
+  "srcnn_no_dem_rmse": 4.3845,
+  "improvement_with_dem_pct": 17.6,
+  "improvement_no_dem_pct": 16.4,
+  "dem_gain_pct": 1.3,
+  "epochs": 80,
+  "seed": 0,
+  "dem_source": "Copernicus GLO-30 (OpenTopography) / CartoDEM-class"
+}
