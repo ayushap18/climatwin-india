@@ -202,6 +202,16 @@ export interface BrainResp {
   provider: string
 }
 
+export interface GuideResp {
+  view: string
+  headline: string
+  plain: string
+  facts: string
+  answer: string | null
+  tips: string[]
+  provider: string
+}
+
 export interface AnomalyResp {
   anomaly: boolean
   kind: 'heat' | 'dryness' | null

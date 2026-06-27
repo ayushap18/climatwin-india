@@ -921,6 +921,26 @@ def brain_anomaly():
     return brain_mod.anomaly_scan(S.cube)
 
 
+@app.get("/guide")
+def guide_ep(
+    view: str = Query("overview", description="the active dashboard view"),
+    variable: str = Query("rainfall", description="active variable"),
+    model: Optional[str] = Query(None, description="active model"),
+    date: Optional[str] = Query(None, description="active date"),
+    q: Optional[str] = Query(None, description="optional plain-language question"),
+):
+    """The always-on, context-aware GUIDE: explains the current screen simply for non-experts.
+
+    Offline-first; uses OLLAMA_GUIDE_MODEL (else OLLAMA_MODEL) only to rephrase the grounded
+    text into friendlier prose — point it at your own fine-tuned model to customise the voice.
+    """
+    from backend import guide as guide_mod
+
+    screen = {"view": view, "variable": variable, "model": model,
+              "date": date, "region": cfg.PILOT["name"]}
+    return guide_mod.guide(screen, _ai_ctx(), q)
+
+
 @app.get("/")
 def root():
     return {"service": "ClimaTwin India API", "docs": "/docs",
