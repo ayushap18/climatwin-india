@@ -40,7 +40,10 @@ export default function GuideAssistant() {
     setAnswer(null)
     try {
       const g = await getGuide({ view: activeView, variable: activeVariable, model: model ?? undefined, q: question })
-      setAnswer(g.answer ?? g.plain)
+      // the guide is for non-experts — strip the [tool:field] grounding tokens so the
+      // answer reads as clean, plain prose (the brain console keeps them as footnotes).
+      const clean = (g.answer ?? g.plain ?? '').replace(/\s*\[[^\]]+\]/g, '').replace(/\s{2,}/g, ' ').trim()
+      setAnswer(clean || "I don't have data for that one — try asking about rainfall, temperature, or a date.")
     } catch {
       setAnswer("I couldn't reach the guide just now.")
     } finally {
@@ -68,7 +71,10 @@ export default function GuideAssistant() {
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
             <div className="flex items-center gap-2 font-mono text-[11px] tracking-[0.14em] text-ink">
               <span className="text-saffron">✦</span> GUIDE
-              <span className="text-[8px] text-muted/60">{ctx?.provider === 'grounded' ? 'offline' : 'AI'}</span>
+              <span className="flex items-center gap-1 text-[8px] text-muted/60">
+                <span className="h-1.5 w-1.5 rounded-full bg-online" />
+                {ctx?.provider?.startsWith('grounded') ? 'READY' : 'AI'}
+              </span>
             </div>
             <button onClick={() => setOpen(false)} className="font-mono text-[11px] text-muted hover:text-danger">✕</button>
           </div>
