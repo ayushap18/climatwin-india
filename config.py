@@ -36,8 +36,9 @@ RAIN, TMAX, TMIN = 0, 1, 2  # channel indices into the state
 UNITS = {"rainfall": "mm", "tmax": "degC", "tmin": "degC", "elevation": "m"}
 
 # Model windowing.
-K_INPUT = 7    # input history length (days)
-H_HORIZON = 7  # default forecast horizon (days)
+K_INPUT = 7      # input history length (days)
+H_HORIZON = 7    # default forecast horizon (days)
+MAX_HORIZON = 14 # hard ceiling on requested forecast horizon (API + agents)
 
 # Rainfall thresholds / impact parameters (explainable, simple — CLAUDE.md §8).
 RAIN_WET_DAY_MM = 2.5       # rain/no-rain threshold for categorical skill
