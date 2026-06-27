@@ -68,7 +68,8 @@ _OTHER_REGIONS = re.compile(
     r"\b(maharashtra|mumbai|pune|nagpur|chennai|tamil\s*nadu|kerala|kochi|bengaluru|"
     r"bangalore|karnataka|kolkata|west\s*bengal|hyderabad|telangana|gujarat|ahmedabad|"
     r"surat|goa|assam|guwahati|bihar|patna|odisha|bhubaneswar|chhattisgarh|jharkhand|"
-    r"madhya\s*pradesh|indore|bhopal|punjab|chandigarh|himachal|shimla|uttarakhand|"
+    r"jaipur|jodhpur|udaipur|kota|ajmer|lucknow|kanpur|agra|varanasi|allahabad|prayagraj|"
+    r"madhya\s*pradesh|indore|bhopal|punjab|amritsar|ludhiana|chandigarh|himachal|shimla|uttarakhand|"
     r"dehradun|jammu|kashmir|srinagar|ladakh|leh|sikkim|manipur|nagaland|mizoram|"
     r"tripura|meghalaya|arunachal|andaman|lakshadweep|puducherry|"
     r"all[-\s]?india|pan[-\s]?india|nationwide)\b",
@@ -126,6 +127,7 @@ def _allowed_numbers(facts: dict, ctx: dict) -> set:
     _collect_numbers(facts, allowed)
     thr = ctx.get("thresholds", {})
     _collect_numbers(list(thr.values()), allowed)
+    _collect_numbers(list(ctx.get("grid", {}).values()), allowed)  # config grid (rows/cols/res)
     start, end = ctx.get("dates", ("2000-01-01", "2023-12-31"))
     allowed.update({start[:4], end[:4]})
     return allowed
@@ -206,7 +208,9 @@ def _scope_violation(question: str, ctx: dict) -> Optional[str]:
         if not (int(start[:4]) <= int(y) <= int(end[:4])):
             return f"the year {y} is outside the available record {start[:4]}..{end[:4]}"
     rm = _OTHER_REGIONS.search(question)
-    if rm:
+    # config-aware: don't refuse a place that is actually part of the configured pilot
+    # (e.g. if PILOT becomes the Maharashtra box, "Maharashtra"/"Mumbai" must NOT be refused).
+    if rm and rm.group(0).lower() not in region.lower():
         return f"'{rm.group(0)}' is outside the pilot region ({region})"
     vm = _OTHER_VARS.search(question)
     if vm:
@@ -412,7 +416,9 @@ def explain(intent: str, facts: dict, ctx: dict, args: dict) -> Tuple[str, List[
         ans = (f"{_f(f['horizon'])}-day outlook from {f['init']} ({f['model']}): "
                f"~{_f(f['total_rain'])} mm total rainfall {cite('forecast','total_rain')}, peak Tmax "
                f"~{_f(f['peak_tmax'])}°C {cite('forecast','peak_tmax')}; {sow}.")
-        caveat = ("Short-range guidance on a 9×13 0.25° grid; rainfall is skewed so treat onset "
+        g = ctx.get("grid", {})
+        grid_txt = (f"{g['rows']}×{g['cols']} {g['res_deg']}° grid" if g else "coarse grid")
+        caveat = (f"Short-range guidance on a {grid_txt}; rainfall is skewed so treat onset "
                   "timing as indicative, not exact.")
         return ans, cites, caveat
 
@@ -620,7 +626,7 @@ def run(question: str, ctx: dict) -> dict:
     if p["refused"]:
         reason = p["refuse_reason"]
         ans = (f"That's outside ClimaTwin's locked scope: {reason}. The pilot covers "
-               f"{ctx.get('region','Delhi-NCR')}, variables rainfall/tmax/tmin, a 1–7 day horizon "
+               f"{ctx.get('region','Delhi-NCR')}, variables rainfall/tmax/tmin, a 1–{ctx.get('max_horizon',14)} day horizon "
                f"and {ctx['dates'][0]}..{ctx['dates'][1]}. I won't guess beyond it.")
         p["steps"][0]["status"] = "ok"
         return {
@@ -644,7 +650,7 @@ def run(question: str, ctx: dict) -> dict:
             "facts": facts,
             "answer": (f"I planned the steps but the {bad} tool didn't return — so I won't "
                        f"state numbers I couldn't actually compute. Try a date in "
-                       f"{ctx['dates'][0]}..{ctx['dates'][1]} with a 1–7 day horizon."),
+                       f"{ctx['dates'][0]}..{ctx['dates'][1]} with a 1–{ctx.get('max_horizon',14)} day horizon."),
             "citations": [],
             "caveat": "Honest stop: the brain never reports a result a tool didn't produce.",
             "refused": False, "provider": "grounded",

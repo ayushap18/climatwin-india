@@ -33,7 +33,9 @@ def _date(q: str, latest: str) -> str:
 
 
 def _horizon(q: str) -> int:
-    m = re.search(r"next\s+(\d+)\s*day", q)
+    # match any "<N> day" phrasing — "next 5 days", "3-day forecast", "forecast 3 days out".
+    # (consistent with brain._scope_violation's r"\b(\d+)\s*[-\s]?day".)
+    m = re.search(r"next\s+(\d+)\s*day", q) or re.search(r"\b(\d+)\s*[-\s]?day", q)
     if m:
         return max(1, min(14, int(m.group(1))))
     if "week" in q:
