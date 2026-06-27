@@ -135,8 +135,8 @@ export default function Downscale() {
                 />
               </div>
               <ResolutionLadder ds={ds} hr={hr} varName={varName} range={range} contrast={gridContrast} />
-              {meta?.diffusion_available && varName === 'rainfall' && (
-                <DiffusionEnsemble date={ds.date} contrast={gridContrast} metrics={meta.diffusion_metrics} />
+              {(meta?.diffusion_vars ?? []).includes(varName) && (
+                <DiffusionEnsemble date={ds.date} varName={varName} contrast={gridContrast} />
               )}
             </>
           ) : error ? (
@@ -465,17 +465,18 @@ function ResolutionLadder({
 // DIFFUSION ENSEMBLE — CorrDiff-style generative downscaling (the SOTA win)
 // --------------------------------------------------------------------------- //
 function DiffusionEnsemble({
-  date, contrast, metrics,
+  date, varName, contrast,
 }: {
-  date: string; contrast: number; metrics: DiffusionMetrics | null
+  date: string; varName: VarName; contrast: number
 }) {
   const [d, setD] = useState<DiffusionResp | null>(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  useEffect(() => setD(null), [varName, date]) // reset when the variable/date changes
   const run = () => {
     setLoading(true)
     setErr(null)
-    getDiffusion(date, 8)
+    getDiffusion(date, 8, varName)
       .then(setD)
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false))
@@ -492,7 +493,7 @@ function DiffusionEnsemble({
     <div className="rounded-lg border border-isro/40 bg-isro/5 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="font-mono text-[10px] tracking-[0.14em] text-isro">
-          DIFFUSION ENSEMBLE · CorrDiff-style 0.25°→0.05°
+          DIFFUSION ENSEMBLE · {varName.toUpperCase()} · CorrDiff-style 0.25°→0.05°
         </span>
         <button
           onClick={run}
@@ -503,22 +504,23 @@ function DiffusionEnsemble({
         </button>
       </div>
 
-      {metrics && <MetricCompare m={metrics} />}
+      {d?.metrics && <MetricCompare m={d.metrics} />}
 
       {d ? (
         <div className="mt-3 flex flex-wrap items-end justify-center gap-3">
-          <DiffThumb title="BILINEAR" sub="smooth baseline" field={d.bilinear} range={range} contrast={contrast} />
+          <DiffThumb title="BILINEAR" sub="smooth baseline" field={d.bilinear} varName={varName} range={range} contrast={contrast} />
           <span className="pb-7 text-muted/40">→</span>
-          <DiffThumb title="DIFFUSION MEAN" sub={`${d.samples}-member ensemble`} field={d.mean} range={range} contrast={contrast} accent />
+          <DiffThumb title="DIFFUSION MEAN" sub={`${d.samples}-member ensemble`} field={d.mean} varName={varName} range={range} contrast={contrast} accent />
           <DiffThumb
             title="UNCERTAINTY ±σ"
             sub="ensemble spread"
             field={d.std}
+            varName={varName}
             range={[0, stdMax]}
             contrast={contrast}
             colorFn={(v) => colorForScale(v, [0, stdMax], 'error', contrast)}
           />
-          <DiffThumb title="REAL 0.05°" sub="INDmet truth" field={d.truth} range={range} contrast={contrast} real />
+          <DiffThumb title="REAL 0.05°" sub="INDmet truth" field={d.truth} varName={varName} range={range} contrast={contrast} real />
         </div>
       ) : (
         <div className="mt-3 text-center font-mono text-[9px] text-muted/70">
@@ -536,10 +538,14 @@ function DiffusionEnsemble({
 }
 
 function MetricCompare({ m }: { m: DiffusionMetrics }) {
+  const fmt = (v: number) => v.toFixed(2)
   const rows = [
-    { label: 'RMSE ↓', b: m.bilinear_rmse, d: m.diffusion_rmse, win: m.diffusion_rmse < m.bilinear_rmse, fmt: (v: number) => v.toFixed(2) },
-    { label: `FSS@${m.threshold_mm} ↑`, b: m.fss_bilinear, d: m.fss_diffusion, win: m.fss_diffusion > m.fss_bilinear, fmt: (v: number) => v.toFixed(2) },
-    { label: 'spectrum→1 ↑', b: m.spec_bilinear, d: m.spec_diffusion, win: Math.abs(m.spec_diffusion - 1) < Math.abs(m.spec_bilinear - 1), fmt: (v: number) => v.toFixed(2) },
+    { label: 'RMSE ↓', b: m.bilinear_rmse, d: m.diffusion_rmse, win: m.diffusion_rmse < m.bilinear_rmse, fmt },
+    // FSS is rainfall-only (a wet-threshold score); skipped for temperature
+    ...(m.fss_bilinear != null && m.fss_diffusion != null
+      ? [{ label: `FSS@${m.threshold_mm} ↑`, b: m.fss_bilinear, d: m.fss_diffusion, win: m.fss_diffusion > m.fss_bilinear, fmt }]
+      : []),
+    { label: 'spectrum→1 ↑', b: m.spec_bilinear, d: m.spec_diffusion, win: Math.abs(m.spec_diffusion - 1) < Math.abs(m.spec_bilinear - 1), fmt },
   ]
   return (
     <div>
@@ -571,9 +577,9 @@ function MetricCompare({ m }: { m: DiffusionMetrics }) {
 }
 
 function DiffThumb({
-  title, sub, field, range, contrast, accent, real, colorFn,
+  title, sub, field, varName, range, contrast, accent, real, colorFn,
 }: {
-  title: string; sub: string; field: number[][]; range: [number, number]
+  title: string; sub: string; field: number[][]; varName: VarName; range: [number, number]
   contrast: number; accent?: boolean; real?: boolean; colorFn?: (v: number) => string
 }) {
   const color = real ? COLORS.online : accent ? COLORS.saffron : COLORS.ink
@@ -581,7 +587,7 @@ function DiffThumb({
   return (
     <div className="flex flex-col items-center gap-1">
       <div className="rounded-md" style={{ outline: `1px solid ${outline}` }}>
-        <Grid field={field} varName="rainfall" range={range} contrast={contrast} w={130} colorFn={colorFn} />
+        <Grid field={field} varName={varName} range={range} contrast={contrast} w={130} colorFn={colorFn} />
       </div>
       <div className="font-mono text-[9px] tracking-[0.08em]" style={{ color }}>{title}</div>
       <div className="font-mono text-[8px] text-muted/70">{sub}</div>

@@ -38,12 +38,20 @@ from models.convlstm import norm_var, denorm_var
 from models.downscale import bilinear_to, block_mean_coarsen, _rmse
 
 INDMET_CUBE = cfg.DATA_DIR / "indmet_cube_005.nc"
-CKPT = cfg.CKPT_DIR / "diffusion_downscale.pt"
 FACTOR = 5            # 0.25° → 0.05°
 PAD = (48, 64)        # pad 40×60 → 48×64 so the U-Net's 3 downsamples are clean
 TIMESTEPS = 1000
-X0_CLAMP = 6.0        # residuals live in ~[-6,6] norm-log1p space; clamp x0 to keep DDIM stable
-NORM_MAX = 8.0        # clamp the reconstructed norm-log1p field before expm1 (≈ heavy-rain ceiling)
+X0_CLAMP = 6.0        # residuals live in ~[-6,6] norm space; clamp x0 to keep DDIM stable
+NORM_MAX = 8.0        # clamp the reconstructed norm-log1p field before expm1 (rainfall only)
+
+
+def _ckpt_path(var: str):
+    """rainfall keeps the legacy name; other vars get a per-variable checkpoint."""
+    return cfg.CKPT_DIR / ("diffusion_downscale.pt" if var == "rainfall" else f"diffusion_downscale_{var}.pt")
+
+
+def _metrics_path(var: str):
+    return cfg.MODELS_DIR / ("diffusion_metrics.json" if var == "rainfall" else f"diffusion_metrics_{var}.json")
 
 
 # --------------------------------------------------------------------------- #
@@ -134,9 +142,13 @@ def _split(da: xr.DataArray, split: str) -> np.ndarray:
     return np.nan_to_num(da.sel(time=slice(f"{y0}-01-01", f"{y1}-12-31")).values.astype("float32"), nan=0.0)
 
 
-def _train_norm(fine_train: np.ndarray) -> dict:
-    x = np.log1p(np.clip(fine_train, 0, None))
-    return {"mean": float(x.mean()), "std": float(x.std()) or 1.0, "transform": "log1p"}
+def _train_norm(fine_train: np.ndarray, var: str = "rainfall") -> dict:
+    """Train-only stats. Rainfall → log1p (zero-inflated/skewed); temperature → identity."""
+    x = np.nan_to_num(fine_train, nan=0.0)
+    if var == "rainfall":
+        x = np.log1p(np.clip(x, 0, None))
+        return {"mean": float(x.mean()), "std": float(x.std()) or 1.0, "transform": "log1p"}
+    return {"mean": float(x.mean()), "std": float(x.std()) or 1.0, "transform": "identity"}
 
 
 def _pairs(fields: np.ndarray, stat: dict):
@@ -165,23 +177,38 @@ def _crop(a, hw=(40, 60)):
     return a[..., : hw[0], : hw[1]]
 
 
+def _reconstruct(base_n, resid, stat: dict, var: str):
+    """fine field = denorm(clamp(norm(bilinear) + residual)). Rainfall clamps to a log1p ceiling
+    and floors at 0; temperature (identity) clamps to a few std and may be negative."""
+    is_rain = var == "rainfall"
+    lo, hi = (-3.0, NORM_MAX) if is_rain else (-6.0, 6.0)
+    field_n = np.clip(base_n + resid, lo, hi)
+    out = denorm_var(field_n, stat)
+    return np.clip(out, 0, None) if is_rain else out
+
+
 # --------------------------------------------------------------------------- #
 # train
 # --------------------------------------------------------------------------- #
-def train(epochs: int = 120, base: int = 48, lr: float = 2e-4, batch: int = 32, seed: int = 0):
+def train(var: str = "rainfall", epochs: int = 120, base: int = 48, lr: float = 2e-4,
+          batch: int = 32, seed: int = 0):
     import torch
     from torch.utils.data import DataLoader, TensorDataset
 
     if not INDMET_CUBE.exists():
-        raise FileNotFoundError(f"no INDmet cube at {INDMET_CUBE}; run `python -m data.ingest_indmet --vars rainfall`")
+        raise FileNotFoundError(f"no INDmet cube at {INDMET_CUBE}; run `python -m data.ingest_indmet --vars {var}`")
     torch.manual_seed(seed); np.random.seed(seed)
     dev = _device()
-    ds = xr.open_dataset(INDMET_CUBE); da = ds["rainfall"]
+    ds = xr.open_dataset(INDMET_CUBE)
+    if var not in ds.data_vars:
+        raise KeyError(f"'{var}' not in the INDmet cube (has {list(ds.data_vars)}); "
+                       f"re-ingest with `--vars rainfall tmax tmin`")
+    da = ds[var]
     H, W = ds.sizes["lat"], ds.sizes["lon"]
-    print(f"[diffusion] device={dev} grid={H}×{W} pad→{PAD} T={TIMESTEPS} (real 0.05° truth)")
+    print(f"[diffusion] var={var} device={dev} grid={H}×{W} pad→{PAD} T={TIMESTEPS} (real 0.05° truth)")
 
     tr = _split(da, "train"); va = _split(da, "val")
-    stat = _train_norm(tr)
+    stat = _train_norm(tr, var)
     c_tr, r_tr, _ = _pairs(tr, stat)
     c_va, r_va, _ = _pairs(va, stat)
 
@@ -223,15 +250,16 @@ def train(epochs: int = 120, base: int = 48, lr: float = 2e-4, batch: int = 32, 
         model.load_state_dict(best_state)
 
     cfg.CKPT_DIR.mkdir(parents=True, exist_ok=True)
-    torch.save({"state_dict": best_state or model.state_dict(), "base": base, "factor": FACTOR,
-                "pad": PAD, "timesteps": TIMESTEPS, "norm": {"rainfall": stat},
+    ckpt_path = _ckpt_path(var)
+    torch.save({"state_dict": best_state or model.state_dict(), "var": var, "base": base, "factor": FACTOR,
+                "pad": PAD, "timesteps": TIMESTEPS, "norm": {var: stat},
                 "fine_shape": [H, W], "lat": ds["lat"].values.tolist(),
                 "lon": ds["lon"].values.tolist(), "data_source": "indmet",
-                "best_val_loss": best, "seed": seed}, CKPT)
-    print(f"[diffusion] saved {CKPT}")
+                "best_val_loss": best, "seed": seed}, ckpt_path)
+    print(f"[diffusion] saved {ckpt_path}")
     # honest spatial/spectral validation on TEST
-    evaluate(model_state=best_state, base=base, n_samples=8)
-    return CKPT
+    evaluate(var=var, model_state=best_state, base=base, n_samples=8)
+    return ckpt_path
 
 
 # --------------------------------------------------------------------------- #
@@ -294,17 +322,18 @@ def _fss(pred: np.ndarray, obs: np.ndarray, thr: float, scale: int = 3) -> float
     return float(1 - num / den) if den > 0 else 1.0
 
 
-def evaluate(ckpt=None, model_state=None, base: int = 48, n_samples: int = 8, n_days: int = 120):
+def evaluate(var: str = "rainfall", ckpt=None, model_state=None, base: int = 48,
+             n_samples: int = 8, n_days: int = 120):
     """Spatial/spectral skill of the diffusion ensemble vs bilinear on the TEST split."""
     import torch
     dev = _device()
-    ds = xr.open_dataset(INDMET_CUBE); da = ds["rainfall"]
+    ds = xr.open_dataset(INDMET_CUBE); da = ds[var]
     H, W = ds.sizes["lat"], ds.sizes["lon"]
     if ckpt is None and model_state is None:
-        if not CKPT.exists():
-            raise FileNotFoundError(CKPT)
-        ckpt = torch.load(CKPT, map_location="cpu", weights_only=False)
-    stat = (ckpt or {}).get("norm", {}).get("rainfall") if ckpt else _train_norm(_split(da, "train"))
+        if not _ckpt_path(var).exists():
+            raise FileNotFoundError(_ckpt_path(var))
+        ckpt = torch.load(_ckpt_path(var), map_location="cpu", weights_only=False)
+    stat = (ckpt or {}).get("norm", {}).get(var) if ckpt else _train_norm(_split(da, "train"), var)
     model = build_unet(base).to(dev)
     model.load_state_dict(ckpt["state_dict"] if ckpt else model_state); model.eval()
     betas, alphas, abar = (x.to(dev) for x in _schedule())
@@ -316,18 +345,20 @@ def evaluate(ckpt=None, model_state=None, base: int = 48, n_samples: int = 8, n_
     condp = _pad(cond).to(dev)
     samp = sample_ensemble(model, condp, abar, alphas, betas, dev, n_samples)  # (n,B,1,Hp,Wp)
     samp = _crop(samp).cpu().numpy()[:, :, 0]                                    # (n,B,H,W) residual
-    # reconstruct ensemble of fine fields = denorm(norm(bilinear) + residual)
+    # reconstruct ensemble of fine fields (var-aware: rainfall log1p+floor, temp identity)
     base_n = np.stack([norm_var(bil[t], stat) for t in range(len(te))])         # (B,H,W)
-    field_n = np.clip(base_n[None] + samp, -3.0, NORM_MAX)                       # clamp before expm1
-    ens = np.clip(denorm_var(field_n, stat), 0, None)                           # (n,B,H,W)
+    ens = _reconstruct(base_n[None], samp, stat, var)                            # (n,B,H,W)
     mean = ens.mean(0)
 
-    # RMSE (honest, not the point), CRPS, FSS, spectrum ratio
+    # RMSE (honest, not the point), CRPS, spectrum ratio; FSS is rainfall-only.
     bil_rmse = _rmse(bil, te); mean_rmse = _rmse(mean, te)
     crps = float(np.mean([_crps_ens(ens[:, t], te[t]) for t in range(len(te))]))
-    thr = cfg.RAIN_WET_DAY_MM
-    fss_d = float(np.mean([_fss(mean[t], te[t], thr) for t in range(len(te))]))
-    fss_b = float(np.mean([_fss(bil[t], te[t], thr) for t in range(len(te))]))
+    if var == "rainfall":
+        thr = cfg.RAIN_WET_DAY_MM
+        fss_d = float(np.mean([_fss(mean[t], te[t], thr) for t in range(len(te))]))
+        fss_b = float(np.mean([_fss(bil[t], te[t], thr) for t in range(len(te))]))
+    else:
+        thr, fss_d, fss_b = None, None, None
     # spectral: average RAPSD, compare high-wavenumber energy to truth (1.0 = perfect)
     sp_t = np.mean([_rapsd(te[t]) for t in range(len(te))], 0)
     sp_b = np.mean([_rapsd(bil[t]) for t in range(len(te))], 0)
@@ -335,18 +366,21 @@ def evaluate(ckpt=None, model_state=None, base: int = 48, n_samples: int = 8, n_
     hi = slice(len(sp_t) // 2, None)  # high-wavenumber band
     spec_b = float(sp_b[hi].mean() / sp_t[hi].mean())
     spec_d = float(sp_d[hi].mean() / sp_t[hi].mean())
-    print("[diffusion] TEST spatial/spectral skill (the honest story):")
+    print(f"[diffusion] var={var} TEST spatial/spectral skill (the honest story):")
     print(f"  RMSE        bilinear={bil_rmse:.3f}  diffusion={mean_rmse:.3f}  (RMSE is NOT the point)")
     print(f"  CRPS↓       diffusion ensemble={crps:.3f}")
-    print(f"  FSS↑@{thr}mm bilinear={fss_b:.3f}  diffusion={fss_d:.3f}")
+    if fss_d is not None:
+        print(f"  FSS↑@{thr}mm bilinear={fss_b:.3f}  diffusion={fss_d:.3f}")
     print(f"  hi-wavenumber power vs truth (→1 best)  bilinear={spec_b:.2f}  diffusion={spec_d:.2f}")
-    metrics = {"bilinear_rmse": round(bil_rmse, 3), "diffusion_rmse": round(mean_rmse, 3),
-               "crps": round(crps, 3), "fss_bilinear": round(fss_b, 3), "fss_diffusion": round(fss_d, 3),
+    metrics = {"var": var, "bilinear_rmse": round(bil_rmse, 3), "diffusion_rmse": round(mean_rmse, 3),
+               "crps": round(crps, 3),
+               "fss_bilinear": round(fss_b, 3) if fss_b is not None else None,
+               "fss_diffusion": round(fss_d, 3) if fss_d is not None else None,
                "spec_bilinear": round(spec_b, 3), "spec_diffusion": round(spec_d, 3),
                "threshold_mm": thr, "n_samples": n_samples, "n_days": len(te), "data_source": "indmet"}
     import json as _json
-    (cfg.MODELS_DIR / "diffusion_metrics.json").write_text(_json.dumps(metrics, indent=2))
-    print(f"[diffusion] wrote {cfg.MODELS_DIR / 'diffusion_metrics.json'}")
+    _metrics_path(var).write_text(_json.dumps(metrics, indent=2))
+    print(f"[diffusion] wrote {_metrics_path(var)}")
     return metrics
 
 
@@ -357,12 +391,14 @@ class DiffusionDownscaler:
     """Loads the trained diffusion model and generates an ENSEMBLE of 0.05° fields for a
     date (conditioned on that day's coarsened field). Served on CPU — the model is small."""
 
-    def __init__(self, ckpt_path=CKPT, cube_path=INDMET_CUBE):
+    def __init__(self, var: str = "rainfall", ckpt_path=None, cube_path=INDMET_CUBE):
         import torch
+        self.var = var
+        ckpt_path = ckpt_path or _ckpt_path(var)
         if not ckpt_path.exists():
             raise FileNotFoundError(f"no diffusion checkpoint at {ckpt_path}")
         ck = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-        self.stat = ck["norm"]["rainfall"]
+        self.stat = ck["norm"].get(var) or next(iter(ck["norm"].values()))
         self.base = int(ck["base"])
         self.H, self.W = ck["fine_shape"]
         self.lat = ck["lat"]
@@ -373,28 +409,27 @@ class DiffusionDownscaler:
         self.dev = "cpu"
         self.betas, self.alphas, self.abar = _schedule()
         self.ds = xr.open_dataset(cube_path)
-        self.da = self.ds["rainfall"]
+        self.da = self.ds[var]
         self.dates = {str(t)[:10] for t in self.ds["time"].values}
 
     def ensemble(self, date: str, n: int = 8, steps: int = 40) -> dict:
         """Return {bilinear, mean, std, truth, range} (all 40×60) for one date."""
-        import torch
         true = np.nan_to_num(self.da.sel(time=date).values.astype("float32"), nan=0.0)
         bil = bilinear_to(block_mean_coarsen(true, FACTOR), (self.H, self.W))
         cond = _pad(norm_var(bil, self.stat)[None, None]).to(self.dev)
         samp = sample_ensemble(self.model, cond, self.abar, self.alphas, self.betas, self.dev, n, steps)
         resid = _crop(samp).cpu().numpy()[:, 0, 0]                 # (n,H,W)
-        base_n = norm_var(bil, self.stat)
-        field_n = np.clip(base_n[None] + resid, -3.0, NORM_MAX)    # clamp before expm1
-        ens = np.clip(denorm_var(field_n, self.stat), 0, None)    # (n,H,W)
+        ens = _reconstruct(norm_var(bil, self.stat)[None], resid, self.stat, self.var)  # (n,H,W)
+        lo = float(min(np.nanpercentile(true, 2), 0.0)) if self.var != "rainfall" else 0.0
         hi = float(max(np.nanpercentile(true, 98), 1.0))
         return {"bilinear": bil, "mean": ens.mean(0), "std": ens.std(0),
-                "truth": true, "range": [0.0, round(hi, 2)],
+                "truth": true, "range": [round(lo, 2), round(hi, 2)],
                 "lat": self.lat, "lon": self.lon, "shape": [self.H, self.W]}
 
 
 def main():
     p = argparse.ArgumentParser(description="CorrDiff-style residual-diffusion downscaler (INDmet 0.05°)")
+    p.add_argument("--var", default="rainfall", choices=["rainfall", "tmax", "tmin"])
     p.add_argument("--epochs", type=int, default=120)
     p.add_argument("--base", type=int, default=48)
     p.add_argument("--lr", type=float, default=2e-4)
@@ -404,9 +439,9 @@ def main():
     a = p.parse_args()
     t0 = time.time()
     if a.eval_only:
-        evaluate(base=a.base)
+        evaluate(var=a.var, base=a.base)
     else:
-        train(epochs=a.epochs, base=a.base, lr=a.lr, batch=a.batch, seed=a.seed)
+        train(var=a.var, epochs=a.epochs, base=a.base, lr=a.lr, batch=a.batch, seed=a.seed)
     print(f"[diffusion] done in {time.time()-t0:.0f}s")
 
 

@@ -170,11 +170,11 @@ export async function getDownscale(date?: string, varName = 'rainfall'): Promise
   return cacheSet(key, await apiFetch<DownscaleResp>(`/downscale?${params.toString()}`))
 }
 
-export async function getDiffusion(date?: string, samples = 6): Promise<DiffusionResp> {
-  const key = cacheKey('/downscale/diffusion', { date, samples })
+export async function getDiffusion(date?: string, samples = 6, varName = 'rainfall'): Promise<DiffusionResp> {
+  const key = cacheKey('/downscale/diffusion', { date, samples, varName })
   const hit = cacheGet<DiffusionResp>(key)
   if (hit) return hit
-  const params = new URLSearchParams({ samples: String(samples) })
+  const params = new URLSearchParams({ samples: String(samples), var: varName })
   if (date) params.set('date', date)
   return cacheSet(key, await apiFetch<DiffusionResp>(`/downscale/diffusion?${params.toString()}`, { stage: 'SIMULATE' }))
 }
