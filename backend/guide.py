@@ -119,6 +119,7 @@ def guide(screen: dict, ctx: dict, question: Optional[str] = None) -> dict:
     facts = _grounded_values(screen, ctx)
 
     answer = None
+    from_brain = False  # a brain answer is ALREADY narrated — don't re-narrate it
     if question and question.strip():
         ql = question.lower()
         # conceptual / "what is X" → answer simply from the glossary or the view help
@@ -139,12 +140,16 @@ def guide(screen: dict, ctx: dict, question: Optional[str] = None) -> dict:
                 from backend import brain as brain_mod
                 tr = brain_mod.run(question, ctx)
                 answer = tr["answer"]
+                from_brain = True
             except Exception:
                 answer = None
 
     plain = (here + (" " + facts if facts else "")).strip()
     provider = _provider()
-    if provider == "ollama":
+    # Spend an LLM call ONLY on an explicit, guide-owned answer (a glossary/concept reply).
+    # Passive screen context stays instant; a brain-delegated answer is already narrated, so
+    # re-narrating it just doubled the latency (~2× the LLM round-trip).
+    if provider == "ollama" and question and question.strip() and not from_brain:
         try:
             from backend import brain as brain_mod
             target = answer or plain

@@ -118,6 +118,15 @@ export default function Explore() {
       ? Math.max(0, Math.min(1, mean2d(rField) / 18))
       : 0
 
+  // heat-stress pulse: only highlight ISOLATED hotspots. On a broad heatwave (most cells hot)
+  // pulsing every cell just blinks the whole map — the red colormap already tells that story.
+  const heatThr = meta?.thresholds.heat_stress_tmax_c ?? 40
+  const heatFrac =
+    !useTerrain && activeVariable === 'tmax' && rField
+      ? rField.flat().filter((v) => v > heatThr).length / Math.max(1, rField.length * (rField[0]?.length ?? 1))
+      : 0
+  const pulseThreshold = heatFrac > 0 && heatFrac < 0.35 ? heatThr : undefined
+
   return (
     <div className="grid h-full grid-cols-1 gap-3 p-3 lg:grid-cols-[1fr_340px]">
       {/* ---- MAIN: map + timeline ---- */}
@@ -171,7 +180,7 @@ export default function Explore() {
                 res={rRes}
                 contrast={gridContrast}
                 colorFn={useTerrain ? (v) => colorForScale(v, rRange, 'elevation', gridContrast) : undefined}
-                pulseAbove={!useTerrain && activeVariable === 'tmax' ? (meta?.thresholds.heat_stress_tmax_c ?? 40) : undefined}
+                pulseAbove={pulseThreshold}
                 seriesFor={
                   useHr || useTerrain
                     ? undefined
