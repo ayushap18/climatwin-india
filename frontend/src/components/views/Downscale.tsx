@@ -43,6 +43,7 @@ function dataRange(grid: number[][]): [number, number] {
 export default function Downscale() {
   const { meta, gridContrast } = useAppState()
   const [varName, setVarName] = useState<VarName>('rainfall')
+  const [dsDate, setDsDate] = useState<string>(DEMO_DATE) // editable; defaults to a wet day
   const [ds, setDs] = useState<DownscaleResp | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -50,13 +51,13 @@ export default function Downscale() {
     let on = true
     setError(null)
     setDs(null)
-    getDownscale(DEMO_DATE, varName)
+    getDownscale(dsDate, varName)
       .then((r) => on && setDs(r))
       .catch((e) => on && setError(e.message))
     return () => {
       on = false
     }
-  }, [varName])
+  }, [varName, dsDate])
 
   // real 0.05° INDmet field for the same day (genuine high-res, rainfall only)
   const [hr, setHr] = useState<HighresResp | null>(null)
@@ -108,7 +109,17 @@ export default function Downscale() {
               reconstruction of the same coarse field. Both target the true 0.25° grid.
             </InfoPopover>
           </div>
-          <div className="font-mono text-[10px] text-muted">{ds ? ds.date : ''}</div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[9px] tracking-[0.12em] text-muted/70">DATE</span>
+            <input
+              type="date"
+              value={dsDate}
+              min={meta?.dates.start}
+              max={meta?.dates.end}
+              onChange={(e) => e.target.value && setDsDate(e.target.value)}
+              className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-mono text-[10px] text-ink [color-scheme:dark]"
+            />
+          </div>
         </div>
 
         {/* pipeline strip — always shown */}
