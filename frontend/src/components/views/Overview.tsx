@@ -10,8 +10,9 @@ import SyncFlow from '../twin/SyncFlow'
 import StatCard from '../panels/StatCard'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import { twinBus, type TwinStage } from '../../api/client'
+import { getState } from '../../api/endpoints'
+import type { StateResp } from '../../api/types'
 import { COLORS } from '../../theme'
-import { prettyDate } from '../../lib/format'
 import { useAppDispatch, useAppState, type ViewId } from '../../state/useAppState'
 
 const STAGES: { id: TwinStage; desc: string }[] = [
@@ -85,7 +86,17 @@ const FEATURES: Feature[] = [
 export default function Overview() {
   const { state, meta } = useAppState()
   const dispatch = useAppDispatch()
-  const impacts = state?.impacts
+  // editable date: pick any day to inspect its live-state telemetry (defaults to latest)
+  const [ovDate, setOvDate] = useState<string | undefined>(undefined)
+  const [picked, setPicked] = useState<StateResp | null>(null)
+  useEffect(() => {
+    if (!ovDate) { setPicked(null); return }
+    let on = true
+    getState(ovDate).then((s) => on && setPicked(s)).catch(() => on && setPicked(null))
+    return () => { on = false }
+  }, [ovDate])
+  const shown = ovDate && picked ? picked : state
+  const impacts = shown?.impacts
   const heatC = meta?.thresholds.heat_stress_tmax_c ?? 40
   const sowMm = meta?.thresholds.sowing_onset_mm ?? 20
   const downscaleOff = meta?.downscale_available === false
@@ -103,8 +114,22 @@ export default function Overview() {
         <div className="relative overflow-hidden rounded-xl border border-line bg-panel/40">
           <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
             <div className="font-mono text-[11px] tracking-[0.22em] text-ink">REALITY ⟷ TWIN · LIVE</div>
-            <div className="font-mono text-[10px] text-muted">
-              {state ? prettyDate(state.date) : 'syncing…'}
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={ovDate ?? meta?.latest_date ?? ''}
+                min={meta?.dates.start}
+                max={meta?.dates.end}
+                onChange={(e) => setOvDate(e.target.value || undefined)}
+                className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-mono text-[10px] text-ink [color-scheme:dark]"
+              />
+              {ovDate && ovDate !== meta?.latest_date && (
+                <button
+                  onClick={() => setOvDate(undefined)}
+                  title="back to the latest date"
+                  className="rounded border border-line px-1.5 py-0.5 font-mono text-[9px] text-muted hover:border-isro/40 hover:text-ink"
+                >NOW</button>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-5 p-5">

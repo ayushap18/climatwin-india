@@ -139,11 +139,18 @@ def load_imd() -> xr.Dataset:
     tmax = _to_grid(tmax, lats, lons)
     tmin = _to_grid(tmin, lats, lons)
 
-    # Static elevation: not from IMD — fill a flat plain placeholder (real CartoDEM
-    # is a P1 upgrade; see files/data_access.md §3). Keep the channel present.
+    # Static elevation: real terrain from data/raw/dem/ (CartoDEM/SRTM) if present, else a
+    # flat plain placeholder. Drop GeoTIFF tiles in data/raw/dem/ to enable the real DEM.
     H, W = lats.size, lons.size
+    from data.ingest_dem import grid_elevation
+    real = grid_elevation(lats, lons, cfg.PILOT["res_deg"])
+    if real is not None:
+        elev2d, elev_note = real, "elevation from a real DEM (CartoDEM/SRTM, data/raw/dem/)"
+        print(f"[build_cube] real DEM elevation: {real.min():.0f}–{real.max():.0f} m")
+    else:
+        elev2d, elev_note = np.full((H, W), 215.0, dtype="float32"), "elevation is a placeholder plain (drop a DEM in data/raw/dem/ for real terrain)"
     elev = xr.DataArray(
-        np.full((rain.time.size, H, W), 215.0, dtype="float32"),
+        np.broadcast_to(elev2d, (rain.time.size, H, W)).astype("float32"),
         coords={"time": rain.time, "lat": lats, "lon": lons},
         dims=("time", "lat", "lon"),
     )
@@ -152,8 +159,7 @@ def load_imd() -> xr.Dataset:
     ds = ds.sel(time=slice(f"{y0}-01-01", f"{y1}-12-31"))
     ds.attrs["data_source"] = "imd"
     ds.attrs["data_source_note"] = (
-        "IMD gridded rainfall (0.25 deg) + Tmax/Tmin (1 deg, regridded) via imdlib. "
-        "Elevation is a placeholder plain; CartoDEM fusion is a P1 upgrade."
+        f"IMD gridded rainfall (0.25 deg) + Tmax/Tmin (1 deg, regridded) via imdlib. {elev_note}."
     )
     return ds
 
