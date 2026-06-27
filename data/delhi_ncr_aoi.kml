@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>ClimaTwin Delhi-NCR AOI</name>
+    <description>Pilot bounding box (lat 27.4-29.6, lon 75.4-78.6) for CartoDEM download on Bhoonidhi.</description>
+    <Placemark>
+      <name>Delhi-NCR box</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              75.4,27.4,0 78.6,27.4,0 78.6,29.6,0 75.4,29.6,0 75.4,27.4,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>
