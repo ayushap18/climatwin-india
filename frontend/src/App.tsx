@@ -15,6 +15,7 @@ import Validation from './components/views/Validation'
 import Downscale from './components/views/Downscale'
 import CommandConsole from './components/console/CommandConsole'
 import CommandPalette from './components/shell/CommandPalette'
+import GuideAssistant from './components/shell/GuideAssistant'
 import { useAppState, type ViewId } from './state/useAppState'
 
 const VIEWS: Record<ViewId, () => JSX.Element> = {
@@ -69,6 +70,7 @@ export default function App() {
         <CommandConsole />
       </div>
       <CommandPalette />
+      <GuideAssistant />
     </>
   )
 }

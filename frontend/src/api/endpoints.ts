@@ -10,6 +10,7 @@ import type {
   DiffusionResp,
   DownscaleResp,
   ForecastResp,
+  GuideResp,
   Health,
   HighresResp,
   Meta,
@@ -128,6 +129,21 @@ export async function getBrain(question: string, date?: string): Promise<BrainRe
   const p = new URLSearchParams({ q: question })
   if (date) p.set('date', date)
   return cacheSet(key, await apiFetch<BrainResp>(`/brain?${p.toString()}`))
+}
+
+/** The always-on guide: a plain-language explanation of the current screen (+ optional question). */
+export async function getGuide(p: {
+  view: string
+  variable: string
+  model?: string
+  date?: string
+  q?: string
+}): Promise<GuideResp> {
+  const params = new URLSearchParams({ view: p.view, variable: p.variable })
+  if (p.model) params.set('model', p.model)
+  if (p.date) params.set('date', p.date)
+  if (p.q) params.set('q', p.q)
+  return apiFetch<GuideResp>(`/guide?${params.toString()}`)
 }
 
 /** Autonomous scan: a recent heat/dryness anomaly vs TRAIN-years climatology (or none). */
