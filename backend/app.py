@@ -173,7 +173,10 @@ def _fields(field: np.ndarray) -> dict:
 def _validate_date(date: Optional[str]) -> str:
     if date is None:
         return S.dates[-1]
-    d = str(pd.Timestamp(date).date())
+    try:
+        d = str(pd.Timestamp(date).date())
+    except (ValueError, TypeError):
+        raise HTTPException(422, f"invalid date {date!r}; expected YYYY-MM-DD")
     if d < S.dates[0] or d > S.dates[-1]:
         raise HTTPException(404, f"date {d} outside available range {S.dates[0]}..{S.dates[-1]}")
     return d
@@ -421,7 +424,7 @@ def meta():
         "highres_res": 0.05 if getattr(S, "indmet", None) is not None else None,
         "highres_vars": getattr(S, "indmet_vars", []),
         "highres_shape": [len(S.indmet_lats), len(S.indmet_lons)] if getattr(S, "indmet", None) is not None else None,
-        "max_horizon": 14,
+        "max_horizon": cfg.MAX_HORIZON,
         "thresholds": {
             "wet_day_mm": cfg.RAIN_WET_DAY_MM,
             "heat_stress_tmax_c": cfg.HEAT_STRESS_TMAX_C,
@@ -478,7 +481,7 @@ def highres(
 @app.get("/forecast")
 def forecast(
     date: Optional[str] = Query(None, description="init date YYYY-MM-DD; defaults to latest"),
-    horizon: int = Query(cfg.H_HORIZON, ge=1, le=14),
+    horizon: int = Query(cfg.H_HORIZON, ge=1, le=cfg.MAX_HORIZON),
     model: Optional[str] = Query(None, description="forecaster; defaults to best available"),
     uncertainty: bool = Query(False, description="ConvLSTM MC-dropout uncertainty bands"),
     samples: int = Query(30, ge=5, le=60, description="MC-dropout ensemble size"),
@@ -505,7 +508,7 @@ def forecast(
 @app.get("/analog")
 def analog(
     date: Optional[str] = Query(None, description="init date YYYY-MM-DD; defaults to latest"),
-    horizon: int = Query(cfg.H_HORIZON, ge=1, le=14),
+    horizon: int = Query(cfg.H_HORIZON, ge=1, le=cfg.MAX_HORIZON),
 ):
     """Analog-ensemble forecast with the matched past IMD days (explainable forecast)."""
     return _analog_payload(_validate_date(date), horizon)
@@ -513,7 +516,7 @@ def analog(
 
 class WhatIfRequest(BaseModel):
     date: Optional[str] = Field(None, description="init date; defaults to latest")
-    horizon: int = Field(cfg.H_HORIZON, ge=1, le=14)
+    horizon: int = Field(cfg.H_HORIZON, ge=1, le=cfg.MAX_HORIZON)
     delta_temp: float = Field(0.0, ge=-5, le=8, description="uniform temperature shift (degC)")
     rain_factor: float = Field(1.0, ge=0.0, le=3.0, description="rainfall multiplier")
     urban_polygon: Optional[List[List[float]]] = Field(
@@ -622,7 +625,7 @@ def _twin_run_payload(date: str, horizon: int, assimilate: bool, model: str) -> 
 @app.get("/twin/run")
 def twin_run(
     date: Optional[str] = Query(None, description="anchor date (MIRROR); defaults to latest-horizon"),
-    horizon: int = Query(cfg.H_HORIZON, ge=1, le=14),
+    horizon: int = Query(cfg.H_HORIZON, ge=1, le=cfg.MAX_HORIZON),
     assimilate: bool = Query(False, description="nudge the twin toward each day's observation"),
     model: Optional[str] = Query(None, description="forecaster; defaults to best available"),
 ):
@@ -648,7 +651,7 @@ async def ws_twin(ws: WebSocket):
     await ws.accept()
     try:
         q = ws.query_params
-        horizon = max(1, min(14, int(q.get("horizon", cfg.H_HORIZON))))
+        horizon = max(1, min(cfg.MAX_HORIZON, int(q.get("horizon", cfg.H_HORIZON))))
         assimilate = q.get("assimilate", "true").lower() in ("1", "true", "yes")
         model = q.get("model") or S.default_model
         interval = max(0.12, min(3.0, float(q.get("interval_ms", 700)) / 1000.0))
@@ -788,17 +791,27 @@ def _diffusion_payload(date: str, samples: int, var: str) -> dict:
     e = dd.ensemble(date, n=samples)
     mpath = cfg.MODELS_DIR / ("diffusion_metrics.json" if var == "rainfall" else f"diffusion_metrics_{var}.json")
     metrics = json.loads(mpath.read_text()) if mpath.exists() else None
+    # Honest, variable-aware framing: rainfall has real fine structure the diffusion recovers
+    # (it beats bilinear on FSS/spectrum); temperature fields are smooth so bilinear already
+    # wins and the generative model over-textures — we say so rather than over-claim.
+    if var == "rainfall":
+        note = ("CorrDiff-style residual diffusion: an ENSEMBLE of plausible 0.05° fields from "
+                "the coarse input. Scored on spatial/spectral skill (FSS, power-spectra, CRPS) — "
+                "where generative downscaling beats a blurry bilinear.")
+    else:
+        note = ("CorrDiff-style residual diffusion ENSEMBLE. Temperature fields are smooth, so "
+                "bilinear is already near-optimal and the diffusion adds plausible-but-excess "
+                "fine texture (it does NOT beat bilinear here) — shown for honest comparison.")
     return {
         "date": date, "var": var, "res_deg": 0.05, "samples": samples,
-        "lat": e["lat"], "lon": e["lon"], "shape": e["shape"], "range": e["range"], "unit": "mm",
+        "lat": e["lat"], "lon": e["lon"], "shape": e["shape"], "range": e["range"],
+        "unit": cfg.UNITS.get(var, ""),
         "bilinear": _grid(e["bilinear"]),
         "mean": _grid(e["mean"]),        # ensemble mean — the sharp downscaled field
         "std": _grid(e["std"]),          # ensemble spread — where the model is uncertain
         "truth": _grid(e["truth"]),      # real INDmet 0.05° (the validation target)
         "metrics": metrics,
-        "note": ("CorrDiff-style residual diffusion: an ENSEMBLE of plausible 0.05° fields "
-                 "from the coarse input. Scored on spatial/spectral skill (FSS, power-spectra, "
-                 "CRPS) — where generative downscaling beats bilinear."),
+        "note": note,
     }
 
 
@@ -890,7 +903,8 @@ def _ai_ctx() -> dict:
         "latest_date": S.dates[-1],
         "dates": (S.dates[0], S.dates[-1]),
         "region": cfg.PILOT["name"],
-        "max_horizon": 14,
+        "grid": {"rows": len(S.lats), "cols": len(S.lons), "res_deg": cfg.PILOT["res_deg"]},
+        "max_horizon": cfg.MAX_HORIZON,
         "thresholds": {
             "heat_stress_tmax_c": cfg.HEAT_STRESS_TMAX_C,
             "sowing_onset_mm": cfg.SOWING_ONSET_MM,
@@ -953,6 +967,7 @@ def guide_ep(
 
 @app.get("/")
 def root():
-    return {"service": "ClimaTwin India API", "docs": "/docs",
-            "endpoints": ["/health", "/meta", "/state", "/forecast", "/whatif",
-                          "/validate", "/downscale"]}
+    # Generated from the live route table so it can never drift from what's served.
+    paths = sorted({r.path for r in app.routes if getattr(r, "methods", None) or r.path.startswith("/ws")}
+                   - {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"})
+    return {"service": "ClimaTwin India API", "docs": "/docs", "endpoints": paths}
