@@ -384,23 +384,29 @@ function BrainStepRow({ step, shown, active }: { step: BrainStep; shown: boolean
   )
 }
 
-// render the answer, styling each [tool:field] grounding citation as a subtle chip
+// render the answer, turning each [tool:field] grounding citation into a clean numbered
+// superscript footnote (the full source shows on hover) so it never clutters the prose
 function CitedAnswer({ text }: { text: string }) {
   const parts = text.split(/(\[[^\]]+\])/g)
+  let n = 0
   return (
     <div className="leading-relaxed text-ink/90">
-      {parts.map((p, i) =>
-        /^\[[^\]]+\]$/.test(p) ? (
-          <span
-            key={i}
-            className="mx-0.5 inline-block rounded bg-isro/10 px-1 align-middle font-mono text-[9px] text-isro"
-          >
-            {p.slice(1, -1)}
-          </span>
-        ) : (
-          <span key={i}>{p}</span>
-        ),
-      )}
+      {parts.map((p, i) => {
+        const m = /^\[([^\]]+)\]$/.exec(p)
+        if (m) {
+          n += 1
+          return (
+            <sup
+              key={i}
+              title={m[1]}
+              className="mx-0.5 cursor-help rounded bg-isro/10 px-1 font-mono text-[8px] text-isro"
+            >
+              {n}
+            </sup>
+          )
+        }
+        return <span key={i}>{p}</span>
+      })}
     </div>
   )
 }
