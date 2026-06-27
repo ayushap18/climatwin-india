@@ -47,6 +47,13 @@ export default function Downscale() {
   const [ds, setDs] = useState<DownscaleResp | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // clamp the curated default into the cube's real range once meta loads, so the view never
+  // opens out of range (and 404s on first paint) if the cube years are rebuilt.
+  useEffect(() => {
+    if (!meta?.dates) return
+    if (dsDate < meta.dates.start || dsDate > meta.dates.end) setDsDate(meta.dates.end)
+  }, [meta]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     let on = true
     setError(null)
@@ -542,7 +549,9 @@ function DiffusionEnsemble({
       )}
       <p className="mt-2 font-mono text-[8px] leading-snug text-muted/70">
         A residual diffusion model samples plausible high-res fields conditioned on the coarse input.
-        It is scored on spatial/spectral skill — where generative downscaling beats a blurry bilinear.
+        {varName === 'rainfall'
+          ? ' It is scored on spatial/spectral skill — where generative downscaling beats a blurry bilinear.'
+          : ' Temperature fields are smooth, so bilinear is already near-optimal and the diffusion over-textures — shown here for honest comparison, not as a win.'}
       </p>
     </div>
   )
