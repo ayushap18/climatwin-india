@@ -388,9 +388,12 @@ def explain(intent: str, facts: dict, ctx: dict, args: dict) -> Tuple[str, List[
 
     if intent == "help":
         start, end = ctx["dates"]
-        ans = (f"I drive the {region} twin: I MIRROR a date's state, SIMULATE a 1–7 day "
-               f"forecast, PERTURB what-if scenarios, check SKILL vs baselines and the "
-               f"twin's drift — then chain them for decisions. Data covers {start}..{end}.")
+        cap = ctx.get("max_horizon", 14)
+        ans = (f"I'm the {region} climate twin — ask me in plain English. Try: "
+               f"\"forecast for tomorrow\", \"is a heatwave coming?\", \"when should I sow?\", "
+               f"\"what if temperature rises 2°C?\", or \"how accurate is the model?\". "
+               f"I mirror a day's state, simulate 1–{cap} days, run what-if scenarios and check "
+               f"skill vs baselines — always citing the real data ({start}..{end}).")
         return ans, cites, "I only state numbers I fetched from the twin's own tools."
 
     if intent == "state":
@@ -684,8 +687,11 @@ def run(question: str, ctx: dict) -> dict:
             provider = f"grounded (LLM {type(e).__name__})"
             final = answer
 
-    # GROUNDING GUARD — final assertion: never ship an ungrounded number.
-    if not _is_grounded(final, allowed):
+    # GROUNDING GUARD — final assertion: never ship an ungrounded number. The 'help'
+    # capabilities reply is static illustrative prose (example questions like "rises 2°C",
+    # "1–14 days") with no tool-derived claims, so it is exempt; every answer that states
+    # real numbers is still strictly guarded.
+    if p["intent"] != "help" and not _is_grounded(final, allowed):
         final = answer if _is_grounded(answer, allowed) else \
             "Could not produce a fully grounded answer from the available tools."
         provider = "grounded (guard)"

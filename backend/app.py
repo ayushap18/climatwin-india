@@ -73,6 +73,9 @@ async def lifespan(app: FastAPI):
     S.lats = S.cube["lat"].values.round(4).tolist()
     S.lons = S.cube["lon"].values.round(4).tolist()
     S.dates = [str(t)[:10] for t in S.cube["time"].values]
+    # the day the app lands on by default — a curated active day, not the dead last date
+    S.featured = cfg.FEATURED_DATE if cfg.FEATURED_DATE in S.dates else S.dates[-1]
+    _maybe_enable_ollama()
 
     # forecasters (climatology fit once); reuse across requests
     S.forecasters = {
@@ -138,12 +141,11 @@ async def lifespan(app: FastAPI):
         else "climatology"
     )
 
-    # warm the caches for the latest date / default horizon
-    latest = S.dates[-1]
-    _state_payload(latest)
-    _forecast_payload(latest, cfg.H_HORIZON, S.default_model)
+    # warm the caches for the featured (default) date / default horizon
+    _state_payload(S.featured)
+    _forecast_payload(S.featured, cfg.H_HORIZON, S.default_model)
     print(f"[backend] ready: source={S.data_source} dates {S.dates[0]}..{S.dates[-1]} "
-          f"grid {len(S.lats)}x{len(S.lons)}")
+          f"featured={S.featured} grid {len(S.lats)}x{len(S.lons)}")
     yield
     S.cube.close()
     if getattr(S, "indmet", None) is not None:
@@ -172,7 +174,7 @@ def _fields(field: np.ndarray) -> dict:
 
 def _validate_date(date: Optional[str]) -> str:
     if date is None:
-        return S.dates[-1]
+        return S.featured
     try:
         d = str(pd.Timestamp(date).date())
     except (ValueError, TypeError):
@@ -407,7 +409,9 @@ def meta():
         "units": cfg.UNITS,
         "colorbar_ranges": S.ranges,
         "dates": {"start": S.dates[0], "end": S.dates[-1], "count": len(S.dates)},
-        "latest_date": S.dates[-1],
+        "latest_date": S.featured,        # the day the app lands on (curated active day)
+        "true_latest_date": S.dates[-1],  # the chronologically last day in the record
+        "featured_date": S.featured,
         "split": cfg.SPLIT,
         "models": list(S.forecasters.keys()),
         "default_model": S.default_model,
@@ -842,6 +846,33 @@ def _twin_demo_model() -> str:
     return S.default_model
 
 
+def _maybe_enable_ollama() -> None:
+    """If a local Ollama is up and the fine-tuned `climatwin-ft` model is present, use it for
+    friendlier narration — UNLESS the user pinned a model (OLLAMA_MODEL) or opted out
+    (OLLAMA_DISABLE=1). The grounding guard still rejects any number the LLM invents, so this
+    only ever makes the wording nicer, never the facts wrong. Fully offline-safe: any failure
+    leaves the deterministic path untouched."""
+    import os
+    import urllib.request
+
+    if os.getenv("OLLAMA_MODEL") or os.getenv("OLLAMA_DISABLE"):
+        print(f"[backend] ollama: respecting env (OLLAMA_MODEL={os.getenv('OLLAMA_MODEL')!r})")
+        return
+    host = os.getenv("OLLAMA_HOST", "127.0.0.1:11434")
+    want = os.getenv("OLLAMA_FT_MODEL", "climatwin-ft")
+    try:
+        with urllib.request.urlopen(f"http://{host}/api/tags", timeout=2) as r:
+            names = [m.get("name", "") for m in json.loads(r.read()).get("models", [])]
+        if any(n == want or n.startswith(want + ":") for n in names):
+            os.environ["OLLAMA_MODEL"] = want
+            os.environ.setdefault("OLLAMA_GUIDE_MODEL", want)
+            print(f"[backend] ollama: enabled '{want}' for narration (grounding guard active)")
+        else:
+            print(f"[backend] ollama: up but '{want}' not found — staying deterministic")
+    except Exception as e:
+        print(f"[backend] ollama: not reachable ({type(e).__name__}) — deterministic narration")
+
+
 def _ai_tools() -> dict:
     def t_state(date):
         p = _state_payload(_validate_date(date))
@@ -900,7 +931,7 @@ def _ai_ctx() -> dict:
     """The shared tool/context bundle handed to both the /ai engine and the /brain."""
     return {
         "tools": _ai_tools(),
-        "latest_date": S.dates[-1],
+        "latest_date": S.featured,
         "dates": (S.dates[0], S.dates[-1]),
         "region": cfg.PILOT["name"],
         "grid": {"rows": len(S.lats), "cols": len(S.lons), "res_deg": cfg.PILOT["res_deg"]},
