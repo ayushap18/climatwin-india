@@ -23,6 +23,7 @@ interface Props {
   seriesFor?: (row: number, col: number) => number[] // per-cell timeline series → hover sparkline
   selected: { row: number; col: number } | null
   onSelect: (cell: { row: number; col: number }) => void
+  colorFn?: (value: number) => string // override the per-variable colormap (e.g. terrain relief)
 }
 
 export default function GridLayer({
@@ -38,6 +39,7 @@ export default function GridLayer({
   seriesFor,
   selected,
   onSelect,
+  colorFn,
 }: Props) {
   const theme = useThemeColors() // themed line color for unselected cell borders
   const cells = cellsFor(field, lat, lon, res)
@@ -46,7 +48,7 @@ export default function GridLayer({
     <>
       {cells.map((c: Cell) => {
         const isSel = selected?.row === c.i && selected?.col === c.j
-        const fill = colorForValue(variable, c.value, range, contrast)
+        const fill = colorFn ? colorFn(c.value) : colorForValue(variable, c.value, range, contrast)
         const pulse = pulseAbove != null && c.value > pulseAbove
         return (
           <Rectangle

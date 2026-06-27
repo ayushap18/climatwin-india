@@ -40,6 +40,14 @@ export const COLORMAPS: Record<string, ColorStop[]> = {
     [0.5, '#27d3e6'],
     [1.0, '#2b6cff'],
   ],
+  // elevation — hypsometric relief: low plains (green) -> tan -> brown hills -> pale peaks
+  elevation: [
+    [0.0, '#1f3d2b'],
+    [0.35, '#6f8f4e'],
+    [0.6, '#c2a86a'],
+    [0.82, '#8a5a3b'],
+    [1.0, '#efe6d8'],
+  ],
   // diff — diverging blue <-> saffron, neutral at 0.5 (used by DiffLayer in M4)
   diff: [
     [0.0, '#2b6cff'],

@@ -21,8 +21,9 @@ import AnalogMatches from '../panels/AnalogMatches'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import HiResToggle from '../controls/HiResToggle'
 import { gridBounds } from '../../lib/grid'
-import { getHighres } from '../../api/endpoints'
-import type { HighresResp } from '../../api/types'
+import { getHighres, getTerrain } from '../../api/endpoints'
+import { colorForScale } from '../../lib/colormaps'
+import type { HighresResp, TerrainResp } from '../../api/types'
 import { useTimeline } from '../../state/useTimeline'
 import { useAppDispatch, useAppState } from '../../state/useAppState'
 import { useEffect, useState } from 'react'
@@ -82,18 +83,38 @@ export default function Explore() {
     }
   }, [hires, hrVarOk, hrDateOk, frame?.date, activeVariable])
 
-  // when the high-res layer is active, render it instead of the 0.25° grid
-  const useHr = hires && !!hr
-  const rField = useHr ? hr!.field : field
-  const rLat = useHr ? hr!.lat : state?.lat
-  const rLon = useHr ? hr!.lon : state?.lon
-  const rRes = useHr ? hr!.res_deg : res
-  const rRange = useHr ? (hr!.range as [number, number]) : range
-  const rBounds = useHr ? gridBounds(hr!.lat, hr!.lon, hr!.res_deg) : bounds
+  // --- TERRAIN layer: the real DEM (OpenTopography GLO-30) elevation, a static overlay ---
+  const [terrain, setTerrain] = useState(false)
+  const [terr, setTerr] = useState<TerrainResp | null>(null)
+  useEffect(() => {
+    if (!terrain || !meta?.terrain_available) return
+    let on = true
+    getTerrain()
+      .then((r) => on && setTerr(r))
+      .catch(() => on && setTerr(null))
+    return () => {
+      on = false
+    }
+  }, [terrain, meta?.terrain_available])
+  const useTerrain = terrain && !!terr
 
-  // rain intensity (0..1) for the animated map overlay — only for the rainfall layer
+  // resolved render layer (TERRAIN > hi-res > the 0.25° variable grid)
+  const useHr = hires && !!hr && !useTerrain
+  const rField = useTerrain ? terr!.field : useHr ? hr!.field : field
+  const rLat = useTerrain ? terr!.lat : useHr ? hr!.lat : state?.lat
+  const rLon = useTerrain ? terr!.lon : useHr ? hr!.lon : state?.lon
+  const rRes = useTerrain ? terr!.res_deg : useHr ? hr!.res_deg : res
+  const rRange = useTerrain ? terr!.range : useHr ? (hr!.range as [number, number]) : range
+  const rBounds = useTerrain
+    ? gridBounds(terr!.lat, terr!.lon, terr!.res_deg)
+    : useHr
+      ? gridBounds(hr!.lat, hr!.lon, hr!.res_deg)
+      : bounds
+  const rUnit = useTerrain ? terr!.unit : unit
+
+  // rain intensity (0..1) for the animated map overlay — only for the rainfall layer (never terrain)
   const rainIntensity =
-    activeVariable === 'rainfall' && rField
+    !useTerrain && activeVariable === 'rainfall' && rField
       ? Math.max(0, Math.min(1, mean2d(rField) / 18))
       : 0
 
@@ -103,10 +124,15 @@ export default function Explore() {
       <section className="relative flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-line bg-panel/40">
         <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
           <div className="flex items-center gap-2 font-mono text-[11px] tracking-[0.22em] text-ink">
-            {(meta?.region ?? 'DELHI-NCR').toUpperCase()} · {activeVariable.toUpperCase()}
+            {(meta?.region ?? 'DELHI-NCR').toUpperCase()} · {useTerrain ? 'ELEVATION' : activeVariable.toUpperCase()}
             {useHr && (
               <span className="rounded border border-online/50 bg-online/10 px-1.5 py-0.5 text-[8px] tracking-[0.1em] text-online">
                 0.05° · {hr!.shape[0]}×{hr!.shape[1]} INDmet
+              </span>
+            )}
+            {useTerrain && (
+              <span className="rounded border border-saffron/50 bg-saffron/10 px-1.5 py-0.5 text-[8px] tracking-[0.1em] text-saffron">
+                {terr!.range[0]}–{terr!.range[1]} m · {terr!.source}
               </span>
             )}
           </div>
@@ -140,17 +166,18 @@ export default function Explore() {
                 lat={rLat}
                 lon={rLon}
                 variable={activeVariable}
-                unit={unit}
+                unit={rUnit}
                 range={rRange}
                 res={rRes}
                 contrast={gridContrast}
-                pulseAbove={activeVariable === 'tmax' ? (meta?.thresholds.heat_stress_tmax_c ?? 40) : undefined}
+                colorFn={useTerrain ? (v) => colorForScale(v, rRange, 'elevation', gridContrast) : undefined}
+                pulseAbove={!useTerrain && activeVariable === 'tmax' ? (meta?.thresholds.heat_stress_tmax_c ?? 40) : undefined}
                 seriesFor={
-                  useHr
+                  useHr || useTerrain
                     ? undefined
                     : (i, j) => tl.frames.map((f) => tl.getData(f)?.fields[activeVariable]?.[i]?.[j] ?? NaN)
                 }
-                selected={useHr ? null : selectedCell}
+                selected={useHr || useTerrain ? null : selectedCell}
                 onSelect={(cell) => {
                   // in 0.05° hi-res mode the grid is 40×60 — map the clicked pixel back to the
                   // coarse 0.25° cell that contains it, so the per-cell forecast series (which
@@ -216,6 +243,27 @@ export default function Explore() {
               available={!!meta?.highres_available}
               activeOk={useHr}
             />
+            {meta?.terrain_available && (
+              <div>
+                <button
+                  onClick={() => setTerrain((t) => !t)}
+                  className={`flex w-full items-center justify-between rounded-md border px-2.5 py-1.5 font-mono text-[10px] tracking-[0.12em] transition-colors ${
+                    terrain ? 'border-saffron/60 bg-saffron/10 text-saffron' : 'border-line text-muted hover:border-isro/40 hover:text-ink'
+                  }`}
+                >
+                  <span>⛰ TERRAIN · real DEM</span>
+                  <span className={`rounded px-1.5 py-0.5 text-[9px] ${terrain ? 'bg-saffron/30' : 'bg-line'}`}>
+                    {terrain ? 'ON' : 'OFF'}
+                  </span>
+                </button>
+                {useTerrain && (
+                  <div className="mt-1.5 rounded-md border border-saffron/30 bg-saffron/5 px-2 py-1 font-mono text-[9px] leading-snug text-muted">
+                    real elevation {terr!.range[0]}–{terr!.range[1]} m · Copernicus GLO-30 (OpenTopography),
+                    the same DEM channel the model uses — Aravalli hills (SW) vs Yamuna plains (E).
+                  </div>
+                )}
+              </div>
+            )}
             <button
               onClick={() => setCompare(true)}
               className="w-full rounded-md border border-line px-2 py-1.5 font-mono text-[10px] tracking-[0.12em] text-muted transition-colors hover:border-isro/40 hover:text-ink"
