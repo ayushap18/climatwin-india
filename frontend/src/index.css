@@ -132,16 +132,15 @@ body {
 @keyframes ct-heat {
   0%,
   100% {
-    stroke-opacity: 0.9;
-    fill-opacity: 0.72;
+    fill-opacity: 0.82;
   }
   50% {
-    stroke-opacity: 0.3;
     fill-opacity: 0.95;
   }
 }
 .ct-heat-pulse {
-  animation: ct-heat 1.6s ease-in-out infinite;
+  /* gentle breathe (no stroke flash) so a few hotspots feel alive without blinking the map */
+  animation: ct-heat 2.6s ease-in-out infinite;
 }
 
 /* --- rain overlay canvas sits above tiles, below controls --- */

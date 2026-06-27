@@ -222,9 +222,14 @@ def _ollama(prompt: str) -> str:
     host = os.getenv("OLLAMA_HOST", "127.0.0.1:11434")
     model = os.getenv("OLLAMA_MODEL")
     url = f"http://{host}/api/generate"
-    body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
+    # The LLM only REPHRASES a short grounded sentence, so cap generation hard — this is what
+    # keeps narration snappy (a 3B model left uncapped will keep generating for seconds).
+    body = json.dumps({
+        "model": model, "prompt": prompt, "stream": False,
+        "options": {"num_predict": 90, "temperature": 0.3},
+    }).encode()
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with urllib.request.urlopen(req, timeout=20) as r:
         out = json.loads(r.read())
     return out.get("response", "").strip()
 
