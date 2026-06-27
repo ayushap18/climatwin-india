@@ -13,6 +13,7 @@ import type {
   GuideResp,
   Health,
   HighresResp,
+  TerrainResp,
   Meta,
   StateResp,
   TwinRunResp,
@@ -49,6 +50,14 @@ export async function getHighres(date: string, varName: string): Promise<Highres
   if (hit) return hit
   const p = new URLSearchParams({ date, var: varName })
   return cacheSet(key, await apiFetch<HighresResp>(`/highres?${p.toString()}`, { stage: 'MIRROR' }))
+}
+
+/** Static real-elevation (DEM) field for the map's TERRAIN layer. */
+export async function getTerrain(): Promise<TerrainResp> {
+  const key = cacheKey('/terrain', {})
+  const hit = cacheGet<TerrainResp>(key)
+  if (hit) return hit
+  return cacheSet(key, await apiFetch<TerrainResp>('/terrain', { stage: 'MIRROR' }))
 }
 
 export interface ForecastQuery {

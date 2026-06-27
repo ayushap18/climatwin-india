@@ -43,6 +43,7 @@ export interface Meta {
   highres_res: number | null
   highres_vars: VarName[]
   highres_shape: [number, number] | null
+  terrain_available: boolean
   max_horizon: number
   thresholds: {
     wet_day_mm: number
@@ -63,6 +64,16 @@ export interface HighresResp {
   field: number[][]
   range: [number, number]
   note: string
+}
+
+export interface TerrainResp {
+  lat: number[]
+  lon: number[]
+  res_deg: number
+  field: number[][]
+  range: [number, number]
+  unit: string
+  source: string
 }
 
 export type Fields = Record<VarName, number[][]>

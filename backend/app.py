@@ -412,6 +412,7 @@ def meta():
         "latest_date": S.featured,        # the day the app lands on (curated active day)
         "true_latest_date": S.dates[-1],  # the chronologically last day in the record
         "featured_date": S.featured,
+        "terrain_available": "elevation" in S.cube,  # real DEM layer for the map
         "split": cfg.SPLIT,
         "models": list(S.forecasters.keys()),
         "default_model": S.default_model,
@@ -844,6 +845,28 @@ def _twin_demo_model() -> str:
     if "persistence" in S.forecasters:
         return "persistence"
     return S.default_model
+
+
+@lru_cache(maxsize=1)
+def _terrain_payload() -> dict:
+    """The static real-elevation (DEM) field over the pilot grid — the map's TERRAIN layer.
+    This is the genuine orography (Aravalli hills high in the SW, Yamuna plains low in the E)
+    sourced from a real DEM (Copernicus GLO-30 via OpenTopography / CartoDEM-class), the same
+    elevation channel the ConvLSTM and the downscaler consume."""
+    elev = S.cube["elevation"].isel(time=0).values.astype("float32")
+    lo, hi = float(np.nanmin(elev)), float(np.nanmax(elev))
+    return {
+        "lat": S.lats, "lon": S.lons, "res_deg": cfg.PILOT["res_deg"],
+        "field": _grid(elev), "range": [round(lo), round(hi)], "unit": "m",
+        "source": "real DEM · Copernicus GLO-30 (OpenTopography) / CartoDEM-class",
+    }
+
+
+@app.get("/terrain")
+def terrain():
+    if "elevation" not in S.cube:
+        raise HTTPException(404, "no elevation field in the cube")
+    return _terrain_payload()
 
 
 def _maybe_enable_ollama() -> None:
