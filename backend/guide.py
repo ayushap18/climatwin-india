@@ -146,6 +146,7 @@ def guide(screen: dict, ctx: dict, question: Optional[str] = None) -> dict:
     provider = _provider()
     if provider == "ollama":
         try:
+            from backend import brain as brain_mod
             target = answer or plain
             prompt = (
                 "You are ClimaTwin's friendly guide for someone who knows nothing about climate "
@@ -155,11 +156,16 @@ def guide(screen: dict, ctx: dict, question: Optional[str] = None) -> dict:
                 f"TEXT: {target}"
             )
             simp = _ollama_guide(prompt).strip()
-            if simp:
+            # GROUNDING GUARD (same as the brain): the rephrase may not introduce any number
+            # absent from the grounded source text or config — else keep the deterministic text.
+            allowed = set(brain_mod._numbers_in(target)) | brain_mod._allowed_numbers({}, ctx)
+            if simp and brain_mod._is_grounded(simp, allowed):
                 if answer:
                     answer = simp
                 else:
                     plain = simp
+            elif simp:
+                provider = "grounded (LLM rephrase rejected: ungrounded number)"
         except Exception as e:
             provider = f"grounded (LLM {type(e).__name__})"
 
