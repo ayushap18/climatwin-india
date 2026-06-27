@@ -173,8 +173,10 @@ The minimum that makes this a digital twin and not a toy.
 - ✅ Fine-tuned local LLM (QLoRA Qwen2.5-3B, optional)
 - ✅ Full React dashboard (6 views) + real-time WebSocket twin replay
 - ✅ Polished impact indicators
-- ⏳ Temperature hi-res diffusion (code ready; train on Colab via
-  `notebooks/ClimaTwin_Diffusion_Temp_Colab.ipynb`)
+- ✅ Temperature hi-res diffusion **trained + evaluated** (honest negative result): on smooth
+  temperature fields bilinear is already near-optimal (~0.12 °C RMSE vs diffusion ~0.28 °C) and the
+  diffusion over-textures, so rainfall stays the served diffusion target — temperature is kept and
+  labeled honestly for comparison
 - ⏳ Multi-horizon rollout training (code ready, smoke-tested)
 - ⏳ Fine-tuned LLM quality (re-export training data + retrain)
 - 🔭 Real INSAT-3D LST fusion (MOSDAC data approval pending; currently a
@@ -212,9 +214,10 @@ ever lacks a real artifact, that's a gap to close before claiming the milestone.
 
 Ordered roughly by value, with the honest blockers attached.
 
-1. **Finish the in-flight items.** Temperature hi-res diffusion (train on Colab),
-   multi-horizon rollout training (promote from smoke-tested to validated), and
-   fine-tuned LLM quality (re-export data + retrain). These are coded — they need
+1. **Finish the in-flight items.** Multi-horizon rollout training (promote from
+   smoke-tested to validated) and fine-tuned LLM quality (re-export data +
+   retrain). (Temperature diffusion is already trained — bilinear won, kept
+   honestly.) These are coded — they need
    compute and a validation pass, not new design. Remember the **golden rule**
    when rollout training lands: refit the ensemble and revalidate.
 

@@ -186,8 +186,13 @@ persistence's 0.45 / 0.29 / 0.55 — the two-head design materially lifts detect
 
 **Diffusion downscaler (rainfall, 0.25° → 0.05° INDmet truth):** FSS@2.5 mm **0.82 vs bilinear
 0.68**; high-wavenumber spectral power vs truth **0.36 vs 0.16** (≈2.3× more recovered texture).
-RMSE 4.42 vs bilinear 5.34 — diffusion wins here too, but spatial/spectral skill is the point. *(Tmax/Tmin
-diffusion: code ready, train on Colab — `notebooks/ClimaTwin_Diffusion_Temp_Colab.ipynb`.)*
+RMSE 4.42 vs bilinear 5.34 — diffusion wins here too, but spatial/spectral skill is the point.
+
+**Temperature diffusion (Tmax/Tmin) — trained, with an honest negative result.** We extended the
+same model to temperature; on these *smooth* fields bilinear is already near-optimal (RMSE ~0.12 °C)
+and the diffusion **over-textures** (high-wavenumber power ~1.76/1.95 vs the truth's 1.0, where
+bilinear's ~0.70/0.63 is closer), so it does **not** beat bilinear. We keep it exposed for honest
+comparison and serve it labeled as such — rainfall remains the headline diffusion target.
 
 ---
 
@@ -256,9 +261,9 @@ flowchart LR
         d5["CorrDiff diffusion (rainfall)"]
         d6["agentic brain + guide"]
         d7["React dashboard + real-time WS"]
+        d8["temperature diffusion<br/>(tried — bilinear won, kept honest)"]
     end
     subgraph NEXT["⏳ In flight"]
-        n1["temperature hi-res diffusion<br/>(Colab)"]
         n2["multi-horizon rollout training"]
         n3["fine-tuned local LLM quality"]
     end
