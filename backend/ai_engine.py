@@ -55,7 +55,16 @@ def detect_intent(q: str) -> str:
         return "sowing"
     if re.search(r"forecast|predict|next\s+\d*\s*(day|week)|tomorrow|coming|upcoming|will it|outlook", s):
         return "forecast"
-    if re.search(r"help|what can you|who are you|capabilit|^\s*(hi|hello|hey)\b", s):
+    if re.search(r"help|what can you|who are you|capabilit|"
+                 r"^\s*(hi+|hii+|hey+|he+y|hello+|hl+o+|heya|yo|sup|hola|namaste|"
+                 r"good\s*(morning|afternoon|evening)|thx|thanks|thank you)\b", s):
+        return "help"
+    # No recognized intent: only fall through to a STATE snapshot if the text actually mentions
+    # something climate-ish. Greetings / chit-chat / gibberish ("hloo", "all models are fine")
+    # get the capabilities reply instead of a confusing state dump.
+    if not re.search(r"rain|temp|tmax|tmin|hot|cold|heat|cool|warm|dry|wet|monsoon|weather|"
+                     r"climate|forecast|state|condition|today|now\b|current|drought|flood|"
+                     r"sow|degree|°c|\bmm\b|humid|snow", s):
         return "help"
     return "state"
 

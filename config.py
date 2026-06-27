@@ -40,6 +40,11 @@ K_INPUT = 7      # input history length (days)
 H_HORIZON = 7    # default forecast horizon (days)
 MAX_HORIZON = 14 # hard ceiling on requested forecast horizon (API + agents)
 
+# The day the dashboard LANDS on by default — a curated, meteorologically *active* day
+# (a monsoon day: real rainfall + warmth) so the demo never opens on a dead winter date.
+# Users can still scrub to any date up to dates.end. Falls back to the last date if absent.
+FEATURED_DATE = "2023-08-23"
+
 # Rainfall thresholds / impact parameters (explainable, simple — CLAUDE.md §8).
 RAIN_WET_DAY_MM = 2.5       # rain/no-rain threshold for categorical skill
 HEAT_STRESS_TMAX_C = 40.0   # heat-stress flag
