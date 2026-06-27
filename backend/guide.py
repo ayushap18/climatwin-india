@@ -150,7 +150,8 @@ def guide(screen: dict, ctx: dict, question: Optional[str] = None) -> dict:
             prompt = (
                 "You are ClimaTwin's friendly guide for someone who knows nothing about climate "
                 "science. Rewrite the text below in 1–3 short, warm sentences a 12-year-old would "
-                "understand. Keep EVERY number exactly as given; invent nothing.\n\n"
+                "understand. Reply in ENGLISH ONLY (no other scripts/characters). Keep EVERY number "
+                "exactly as given and copy any [tool:field] token verbatim; invent nothing.\n\n"
                 f"TEXT: {target}"
             )
             simp = _ollama_guide(prompt).strip()

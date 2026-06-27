@@ -37,6 +37,7 @@ export interface Meta {
   has_lst: boolean
   downscale_available: boolean
   diffusion_available: boolean
+  diffusion_vars: VarName[]
   diffusion_metrics: DiffusionMetrics | null
   highres_available: boolean
   highres_res: number | null
@@ -292,11 +293,12 @@ export interface ValidateResp {
 }
 
 export interface DiffusionMetrics {
+  var?: string
   bilinear_rmse: number
   diffusion_rmse: number
   crps: number
-  fss_bilinear: number
-  fss_diffusion: number
+  fss_bilinear: number | null
+  fss_diffusion: number | null
   spec_bilinear: number
   spec_diffusion: number
   threshold_mm: number

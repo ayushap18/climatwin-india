@@ -148,29 +148,47 @@ def _is_grounded(text: str, allowed: set) -> bool:
 # perturbation parsing (mirrors ai_engine.gather's what-if slot logic)
 # --------------------------------------------------------------------------- #
 def _perturbation(question: str) -> Tuple[float, float]:
-    """Parse a (delta_temp, rain_factor) scenario from free text."""
+    """Parse a (delta_temp, rain_factor) scenario from free text.
+
+    Rainfall is resolved FIRST so a percentage (e.g. "50% more rain") is never mistaken
+    for a temperature delta; temperature is then parsed from the %-stripped text and only
+    when a warming/cooling cue is present.
+    """
     s = question.lower()
-    dt = 0.0
-    m = re.search(r"(rise|increase|warmer|hotter|up|\+)\D{0,12}?([-+]?\d+(?:\.\d+)?)", s)
-    if m:
-        dt = float(m.group(2))
-    m2 = re.search(r"(drop|fall|cooler|down|less)\D{0,12}?([-+]?\d+(?:\.\d+)?)", s)
-    if m2 and "rain" not in s:
-        dt = -float(m2.group(2))
-    if dt == 0.0:
-        nums = re.findall(r"[-+]?\d+(?:\.\d+)?", question)
-        # avoid grabbing a YYYY-MM-DD year as a temperature delta
-        nums = [n for n in nums if not (len(n) == 4 and n.isdigit())]
-        dt = float(nums[0]) if nums else 2.0
+
+    # --- rainfall factor ---
     rf = 1.0
-    if re.search(r"half|halve", s):
+    if re.search(r"\b(half|halve|halved)\b", s):
         rf = 0.5
-    elif re.search(r"double|twice", s):
+    elif re.search(r"\b(double|twice|twofold)\b", s):
         rf = 2.0
     else:
-        mp = re.search(r"rain\w*\D{0,12}?(\d+)\s*%", s)
-        if mp:
-            rf = int(mp.group(1)) / 100.0
+        # "less/drop/down …%" or "…% less" → reduce BY that %; "more/extra …%" → increase BY it.
+        mless = re.search(r"(?:less|fewer|lower|drop|down|reduce|fall|cut)\w*\D{0,14}?(\d+)\s*%"
+                          r"|(\d+)\s*%\s*(?:less|fewer|lower|drop|down)", s)
+        mmore = re.search(r"(?:more|extra|higher|increase|up|rise|boost)\w*\D{0,14}?(\d+)\s*%"
+                          r"|(\d+)\s*%\s*(?:more|extra|higher|increase|up)", s)
+        mrain = re.search(r"rain\w*\D{0,16}?(\d+)\s*%|(\d+)\s*%\D{0,12}?rain", s)
+        if mless:
+            rf = max(0.0, 1 - int(mless.group(1) or mless.group(2)) / 100)
+        elif mmore:
+            rf = 1 + int(mmore.group(1) or mmore.group(2)) / 100
+        elif mrain:
+            rf = int(mrain.group(1) or mrain.group(2)) / 100.0
+
+    # --- temperature delta ---
+    # strip % numbers, ISO dates and bare years so none is mistaken for a temp delta
+    s_np = re.sub(r"\d+\s*%", " ", s)
+    s_np = re.sub(r"\d{4}-\d{2}-\d{2}", " ", s_np)
+    s_np = re.sub(r"\b(?:19|20|21)\d{2}\b", " ", s_np)
+    has_temp = bool(re.search(r"warm|hot|cool|cold|temp|degree|°|heat", s_np))
+    dt = 0.0
+    if has_temp:
+        nums = [float(n) for n in re.findall(r"[-+]?\d+(?:\.\d+)?", s_np)]
+        val = nums[0] if nums else 2.0  # "warmer" with no number defaults to +2
+        cooling = bool(re.search(r"cool|cold|drop|fall|lower|decreas|down", s_np)) and "rain" not in s_np
+        dt = -val if cooling else val
+    dt = max(-10.0, min(10.0, dt))  # sanity clamp: a delta beyond +/-10C is a parse error
     return dt, rf
 
 
@@ -504,8 +522,9 @@ def _provider() -> str:
 def _narrate(answer: str, caveat: str, facts: dict) -> str:
     prompt = (
         "Rephrase the following ClimaTwin decision answer to read naturally. STRICT RULES: "
-        "keep EVERY number EXACTLY as written, invent NO new numbers, keep each [tool:field] "
-        "citation token verbatim, stay within 1-3 sentences, and do not add a caveat.\n\n"
+        "reply in ENGLISH ONLY (no other scripts/characters); keep EVERY number EXACTLY as "
+        "written; invent NO new numbers; copy each [tool:field] token VERBATIM and never write "
+        "anything else inside square brackets; stay within 1-3 sentences; do not add a caveat.\n\n"
         f"ANSWER: {answer}\n"
         f"(context facts, do not introduce others: {facts})"
     )

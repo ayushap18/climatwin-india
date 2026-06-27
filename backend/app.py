@@ -413,8 +413,8 @@ def meta():
         "lst_source": S.cube.attrs.get("lst_source"),
         "has_lst": bool(getattr(S.forecasters.get("convlstm"), "has_lst", False)),
         "downscale_available": (cfg.CKPT_DIR / "downscale.pt").exists(),
-        "diffusion_available": (cfg.CKPT_DIR / "diffusion_downscale.pt").exists()
-        and getattr(S, "indmet", None) is not None,
+        "diffusion_available": "rainfall" in _diffusion_vars(),
+        "diffusion_vars": _diffusion_vars(),
         "diffusion_metrics": (json.loads((cfg.MODELS_DIR / "diffusion_metrics.json").read_text())
                               if (cfg.MODELS_DIR / "diffusion_metrics.json").exists() else None),
         "highres_available": getattr(S, "indmet", None) is not None,
@@ -759,28 +759,37 @@ def downscale(
     }
 
 
-_DIFFUSION = {}  # lazy singleton
+_DIFFUSION = {}  # lazy singletons, keyed by variable
 
 
-def _get_diffusion():
-    ckpt = cfg.CKPT_DIR / "diffusion_downscale.pt"
-    if not ckpt.exists():
-        raise HTTPException(503, "diffusion downscaler unavailable: no checkpoint "
-                                 "(train via `python -m models.diffusion_downscale`, Colab GPU).")
-    if "m" not in _DIFFUSION:
+def _diffusion_ckpt(var: str):
+    return cfg.CKPT_DIR / ("diffusion_downscale.pt" if var == "rainfall" else f"diffusion_downscale_{var}.pt")
+
+
+def _diffusion_vars() -> list:
+    """Variables that have BOTH a trained diffusion checkpoint AND an INDmet high-res layer."""
+    hr = getattr(S, "indmet_vars", [])
+    return [v for v in cfg.VARS if _diffusion_ckpt(v).exists() and v in hr]
+
+
+def _get_diffusion(var: str = "rainfall"):
+    if not _diffusion_ckpt(var).exists():
+        raise HTTPException(503, f"diffusion downscaler unavailable for {var!r} "
+                                 f"(train via `python -m models.diffusion_downscale --var {var}`).")
+    if var not in _DIFFUSION:
         from models.diffusion_downscale import DiffusionDownscaler
-        _DIFFUSION["m"] = DiffusionDownscaler()
-    return _DIFFUSION["m"]
+        _DIFFUSION[var] = DiffusionDownscaler(var=var)
+    return _DIFFUSION[var]
 
 
 @lru_cache(maxsize=64)
-def _diffusion_payload(date: str, samples: int) -> dict:
-    dd = _get_diffusion()
+def _diffusion_payload(date: str, samples: int, var: str) -> dict:
+    dd = _get_diffusion(var)
     e = dd.ensemble(date, n=samples)
-    mpath = cfg.MODELS_DIR / "diffusion_metrics.json"
+    mpath = cfg.MODELS_DIR / ("diffusion_metrics.json" if var == "rainfall" else f"diffusion_metrics_{var}.json")
     metrics = json.loads(mpath.read_text()) if mpath.exists() else None
     return {
-        "date": date, "var": "rainfall", "res_deg": 0.05, "samples": samples,
+        "date": date, "var": var, "res_deg": 0.05, "samples": samples,
         "lat": e["lat"], "lon": e["lon"], "shape": e["shape"], "range": e["range"], "unit": "mm",
         "bilinear": _grid(e["bilinear"]),
         "mean": _grid(e["mean"]),        # ensemble mean — the sharp downscaled field
@@ -797,14 +806,15 @@ def _diffusion_payload(date: str, samples: int) -> dict:
 def downscale_diffusion(
     date: Optional[str] = Query(None, description="date YYYY-MM-DD; defaults to latest"),
     samples: int = Query(6, ge=2, le=24, description="ensemble members"),
+    var: str = Query("rainfall", description="variable (rainfall/tmax/tmin) with a trained model"),
 ):
     """Diffusion-ensemble downscaling 0.25°→0.05° on real INDmet truth: bilinear baseline,
     ensemble mean (sharp), ensemble spread (uncertainty), the real 0.05° field + skill metrics."""
-    dd = _get_diffusion()  # 503 if no checkpoint
+    dd = _get_diffusion(var)  # 503 if no checkpoint for this var
     d = _validate_date(date)
     if d not in dd.dates:
         raise HTTPException(404, f"date {d} not in the INDmet 0.05° record")
-    return _diffusion_payload(d, samples)
+    return _diffusion_payload(d, samples, var)
 
 
 # --------------------------------------------------------------------------- #
