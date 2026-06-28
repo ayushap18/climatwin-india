@@ -40,8 +40,11 @@
 ## 🛰️ Built for the Bharatiya Antariksh Hackathon 2026
 
 The **third edition** of the Bharatiya Antariksh Hackathon — a national innovation initiative by the
-**Indian Space Research Organisation (ISRO)**, powered by **Hack2skill**. 
-**ClimaTwin India** is Team CodeCatalysts' 
+**Indian Space Research Organisation (ISRO)**, powered by **Hack2skill** — challenging student
+innovators across India to build for the nation's future in space.
+**ClimaTwin India** is Team CodeCatalysts' answer: an India-first climate digital twin, scaled honestly
+to hackathon compute.
+
 ---
 
 ## 👥 Team CodeCatalysts
