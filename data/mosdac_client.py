@@ -25,11 +25,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import time
 from pathlib import Path
 
 import requests
 
 import config as cfg
+
+# Granule names look like 3DIMG_15JUL2020_0600_L2B_LST_V01R00.h5 — date + UTC HHMM.
+_GRAN_DATE = re.compile(r"_(\d{2}[A-Z]{3}\d{4})_")
+_GRAN_HHMM = re.compile(r"_(\d{2}[A-Z]{3}\d{4})_(\d{4})_")
+
+
+def _hhmm_minutes(identifier: str) -> int | None:
+    m = _GRAN_HHMM.search(identifier or "")
+    if not m:
+        return None
+    hhmm = m.group(2)
+    return int(hhmm[:2]) * 60 + int(hhmm[2:])
 
 # --------------------------------------------------------------------------- #
 # Endpoints (mirrors data/mdapi/mdapi.py exactly).
@@ -240,26 +254,32 @@ class MosdacClient:
             return out_path  # already downloaded
 
         headers = {"Authorization": f"Bearer {self.access_token}"}
-        r = self.session.get(DOWNLOAD_URL, headers=headers, params={"id": entry["id"]},
-                             stream=True, timeout=self.timeout)
-        if r.status_code == 401:
-            # token expired mid-run -> refresh once and retry
-            code = (r.json().get("code") if _is_json(r) else "") or ""
-            if code in ("INVALID_TOKEN", "NO_ACCESS_TOKEN"):
-                self.refresh()
-                headers = {"Authorization": f"Bearer {self.access_token}"}
-                r = self.session.get(DOWNLOAD_URL, headers=headers, params={"id": entry["id"]},
-                                     stream=True, timeout=self.timeout)
-        if r.status_code == 404 and _is_json(r) and r.json().get("code") == "NOT_RELEASED":
-            raise MosdacNotReleased(f"{identifier}: not released for download.")
-        if r.status_code == 429:
-            body = r.json() if _is_json(r) else {}
-            if body.get("type") == "daily_limit":
-                raise MosdacRateLimit(body.get("message", "Daily download quota reached."))
-            raise MosdacError(body.get("message", "Rate limited; try again shortly."))
-        if r.status_code == 400:
-            raise MosdacError(f"{identifier}: download validation error: {self._error_message(r)}")
-        r.raise_for_status()
+        # Bounded retry loop so a per-minute throttle (429 minute_limit) or one expired
+        # token doesn't abort a long 365-day pull.
+        for attempt in range(6):
+            r = self.session.get(DOWNLOAD_URL, headers=headers, params={"id": entry["id"]},
+                                 stream=True, timeout=self.timeout)
+            if r.status_code == 401:
+                code = (r.json().get("code") if _is_json(r) else "") or ""
+                if code in ("INVALID_TOKEN", "NO_ACCESS_TOKEN"):
+                    self.refresh()
+                    headers = {"Authorization": f"Bearer {self.access_token}"}
+                    continue
+            if r.status_code == 404 and _is_json(r) and r.json().get("code") == "NOT_RELEASED":
+                raise MosdacNotReleased(f"{identifier}: not released for download.")
+            if r.status_code == 429:
+                body = r.json() if _is_json(r) else {}
+                if body.get("type") == "daily_limit":
+                    raise MosdacRateLimit(body.get("message", "Daily download quota (5000/day) reached."))
+                # minute_limit -> wait and retry
+                time.sleep(20)
+                continue
+            if r.status_code == 400:
+                raise MosdacError(f"{identifier}: download validation error: {self._error_message(r)}")
+            r.raise_for_status()
+            break
+        else:
+            raise MosdacError(f"{identifier}: gave up after repeated rate-limit/token retries.")
 
         tmp = out_path.with_suffix(out_path.suffix + ".part")
         with open(tmp, "wb") as fh:
@@ -282,6 +302,57 @@ class MosdacClient:
                 if p is not None:
                     saved.append(p)
             except MosdacNotReleased:
+                continue
+        return saved
+
+    # -- one-overpass-per-day download (for a focused daily LST cube) -------- #
+    def _day_entries(self, day: str) -> list[dict]:
+        """All granules for a single calendar day (startTime==endTime==day)."""
+        params = self._search_params()
+        params["startTime"] = day
+        params["endTime"] = day
+        r = self.session.get(SEARCH_URL, params=params, timeout=self.timeout)
+        if r.status_code // 100 in (4, 5):
+            return []
+        body = r.json()
+        return body.get("entries") or []
+
+    def download_daily_overpass(self, start: str, end: str, target_hhmm: str = "0600",
+                                dest_dir: Path | str | None = None,
+                                days_limit: int | None = None) -> list[Path]:
+        """Download ONE granule per day — the one closest to ``target_hhmm`` UTC.
+
+        INSAT-3D LST is half-hourly (~48/day); for a daily cube we want a single
+        consistent overpass. ~0600 UTC ≈ local late-morning over India (good daytime
+        skin temperature). Returns the saved paths. Requires a valid token.
+        """
+        import pandas as pd
+
+        if not self.access_token:
+            self.get_token()
+        dest = Path(dest_dir) if dest_dir is not None else self.download_dir()
+        dest.mkdir(parents=True, exist_ok=True)
+        target_min = int(target_hhmm[:2]) * 60 + int(target_hhmm[2:])
+
+        days = pd.date_range(start, end, freq="D")
+        if days_limit is not None:
+            days = days[:days_limit]
+        saved: list[Path] = []
+        for d in days:
+            ds = d.strftime("%Y-%m-%d")
+            entries = self._day_entries(ds)
+            if not entries:
+                continue
+            # pick the granule whose UTC time is closest to the target overpass
+            best = min(
+                entries,
+                key=lambda e: abs((_hhmm_minutes(e.get("identifier") or "") or 99999) - target_min),
+            )
+            try:
+                p = self.download_granule(best, dest)
+                if p is not None:
+                    saved.append(p)
+            except (MosdacNotReleased, MosdacError):
                 continue
         return saved
 
@@ -319,7 +390,23 @@ def main():
     p.add_argument("--limit", type=int, default=None, help="max granules to list/download")
     p.add_argument("--no-auth", action="store_true",
                    help="search without logging in (search is public)")
+    p.add_argument("--daily", action="store_true",
+                   help="download ONE overpass per day over [--start, --end]")
+    p.add_argument("--start", help="daily download start date YYYY-MM-DD")
+    p.add_argument("--end", help="daily download end date YYYY-MM-DD")
+    p.add_argument("--target", default="0600", help="target UTC overpass HHMM (default 0600)")
     args = p.parse_args()
+
+    if args.daily:
+        client = MosdacClient()
+        s = args.start or client.cfg["search_parameters"].get("startTime")
+        e = args.end or client.cfg["search_parameters"].get("endTime")
+        print(f"[mosdac] daily overpass download {s}..{e} target={args.target}Z")
+        saved = client.download_daily_overpass(s, e, target_hhmm=args.target,
+                                               days_limit=args.limit)
+        print(f"[mosdac] downloaded {len(saved)} daily granule(s) -> {client.download_dir()}")
+        client.logout()
+        return
 
     client = MosdacClient()
     print(f"[mosdac] datasetId={client.cfg['search_parameters'].get('datasetId')} "
