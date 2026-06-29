@@ -14,6 +14,11 @@ export function cacheSet<T>(key: string, value: T): T {
   return value
 }
 
+/** Drop everything — called when the data-source regime switches (cross-regime safety). */
+export function cacheClear(): void {
+  store.clear()
+}
+
 export function cacheKey(path: string, params?: Record<string, unknown>): string {
   if (!params) return path
   const q = Object.entries(params)

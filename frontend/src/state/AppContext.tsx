@@ -7,10 +7,13 @@ import {
   useContext,
   useEffect,
   useReducer,
+  useRef,
   type Dispatch,
   type ReactNode,
 } from 'react'
 import { getForecast, getHealth, getMeta, getState } from '../api/endpoints'
+import { setApiSource } from '../api/client'
+import { cacheClear } from '../api/cache'
 import type { ForecastResp, Health, Meta, StateResp, VarName } from '../api/types'
 
 export type ViewId = 'overview' | 'twin' | 'explore' | 'whatif' | 'validation' | 'downscale'
@@ -103,8 +106,20 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, activeVariable: action.variable }
     case 'SET_MODEL':
       return { ...state, model: action.model }
-    case 'SET_SOURCE':
-      return { ...state, source: action.source }
+    case 'SET_SOURCE': {
+      if (action.source === state.source) return state
+      const sm = state.meta?.sources?.find((s) => s.key === action.source)
+      return {
+        ...state,
+        source: action.source,
+        // adopt the regime's own default model + featured date; clear stale fields so
+        // views show loading until the source-effect refetches (see AppProvider).
+        model: sm?.default_model ?? state.model,
+        initDate: sm?.featured_date ?? state.initDate,
+        state: null,
+        forecast: null,
+      }
+    }
     case 'SET_HORIZON':
       return { ...state, horizon: action.horizon }
     case 'SET_TIMELINE':
@@ -160,6 +175,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cancelled = true
     }
   }, [])
+
+  // React to a data-source regime switch: point the API client at the new source,
+  // drop the cross-regime cache, and refetch state + forecast for that regime. The
+  // very first run (initial synthetic, already prefetched at boot) only sets the source.
+  const lastSourceRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (state.bootStatus !== 'ready' || !state.source || !state.meta) return
+    if (lastSourceRef.current === state.source) return
+    const firstApply = lastSourceRef.current === null
+    lastSourceRef.current = state.source
+    setApiSource(state.source)
+    if (firstApply) return // synthetic boot data is already loaded
+
+    cacheClear()
+    const sm = state.meta.sources?.find((s) => s.key === state.source)
+    const date = sm?.featured_date ?? state.meta.latest_date
+    const model = sm?.default_model ?? undefined
+    let on = true
+    getState(date)
+      .then((s) => on && dispatch({ type: 'SET_STATE', state: s }))
+      .catch(() => {})
+    getForecast({ date, model })
+      .then((f) => {
+        if (on && !f.pending) dispatch({ type: 'SET_FORECAST', forecast: f })
+      })
+      .catch(() => {})
+    return () => {
+      on = false
+    }
+  }, [state.source, state.bootStatus, state.meta])
 
   return (
     <StateCtx.Provider value={state}>

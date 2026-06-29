@@ -26,41 +26,47 @@ export interface DataSource {
   lstLabel: string // LST provenance tag
   dateStart: string // YYYY-MM-DD — regime floor
   dateEnd: string // YYYY-MM-DD — regime ceiling (training cutoff)
+  featured: string // a curated active day to land on within the regime
   status: SourceStatus
   note: string // honest one-liner shown on hover / banner
 }
 
-export function deriveSources(meta: Meta): DataSource[] {
-  const realActive = meta.lst_source === 'insat_real'
-  const insatStart = meta.dates.start > INSAT_ERA_START ? meta.dates.start : INSAT_ERA_START
+function lstLabel(lst: string | null): string {
+  if (lst && lst.toLowerCase().includes('insat')) return 'INSAT-3D'
+  return 'SYNTHETIC'
+}
 
-  const synthetic: DataSource = {
+export function deriveSources(meta: Meta): DataSource[] {
+  // Prefer the backend's authoritative per-regime metadata (real dates/status/note).
+  if (meta.sources && meta.sources.length) {
+    return meta.sources.map((s) => ({
+      key: s.key,
+      label: s.label,
+      lstLabel: lstLabel(s.lst_source),
+      dateStart: s.dates.start,
+      dateEnd: s.dates.end,
+      featured: s.featured_date,
+      status: s.status,
+      note: s.note,
+    }))
+  }
+  // Fallback for an older backend without sources[]: single validated regime.
+  return [{
     key: 'synthetic',
     label: 'IMD · Synthetic LST',
     lstLabel: 'SYNTHETIC',
     dateStart: meta.dates.start,
     dateEnd: meta.dates.end,
+    featured: meta.latest_date,
     status: 'active',
-    note: `Validated regime — IMD national data with a synthetic LST channel over the full ${meta.dates.start.slice(0, 4)}–${meta.dates.end.slice(0, 4)} record.`,
-  }
-
-  const real: DataSource = {
-    key: 'insat_real',
-    label: 'IMD · INSAT-3D LST',
-    lstLabel: 'INSAT-3D',
-    dateStart: insatStart,
-    dateEnd: meta.dates.end,
-    status: realActive ? 'active' : 'pending',
-    note: realActive
-      ? `Real INSAT-3D LST fused and retrained — satellite era ${insatStart.slice(0, 4)}–${meta.dates.end.slice(0, 4)}.`
-      : `INSAT-3D LST is observational and pending a retrain — the validated model still runs, clamped to the satellite era ${insatStart.slice(0, 4)}–${meta.dates.end.slice(0, 4)}.`,
-  }
-
-  return [synthetic, real]
+    note: `Validated regime — full ${meta.dates.start.slice(0, 4)}–${meta.dates.end.slice(0, 4)} record.`,
+  }]
 }
 
 export function activeSourceKey(meta: Meta): string {
-  return meta.lst_source === 'insat_real' ? 'insat_real' : 'synthetic'
+  // The backend default regime is synthetic; the switcher overrides per user choice.
+  const first = meta.sources?.[0]?.key
+  return first ?? 'synthetic'
 }
 
 function clampDate(d: string, lo: string, hi: string): string {
@@ -104,8 +110,11 @@ export function useSnapDateToSource(
     if (!active) return
     const eff = date || latest || meta.latest_date
     if (eff < active.dateStart || eff > active.dateEnd) {
+      // land on the regime's curated active day (e.g. a 2020 monsoon day), not the
+      // dead end-of-record; fall back to true-latest then the window end.
       const recent = meta.true_latest_date || meta.latest_date
-      set(recent >= active.dateStart && recent <= active.dateEnd ? recent : active.dateEnd)
+      const inRange = (d: string) => d >= active.dateStart && d <= active.dateEnd
+      set(inRange(active.featured) ? active.featured : inRange(recent) ? recent : active.dateEnd)
     }
     // Intentionally regime-keyed only: snap on source change, not on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps

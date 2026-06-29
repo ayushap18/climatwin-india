@@ -5,9 +5,11 @@
 import { useAppDispatch, useAppState } from '../../state/useAppState'
 
 export default function ModelSelect() {
-  const { meta, model } = useAppState()
+  const { meta, model, source } = useAppState()
   const dispatch = useAppDispatch()
-  const models = meta?.models ?? []
+  // models available depend on the active regime (e.g. insat_real has no ensemble/analog)
+  const sm = meta?.sources?.find((s) => s.key === (source ?? 'synthetic'))
+  const models = sm?.models ?? meta?.models ?? []
   if (models.length === 0) return null
 
   return (

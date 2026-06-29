@@ -47,7 +47,8 @@ export function useTimeline(anchor?: string) {
     let on = true
     getForecast({ date: init, horizon, model: model ?? undefined, uncertainty })
       .then((f) => {
-        if (on) dispatch({ type: 'SET_FORECAST', forecast: f })
+        // a read-only regime returns {pending:true} with no days — don't store it as frames
+        if (on && !f.pending) dispatch({ type: 'SET_FORECAST', forecast: f })
       })
       .catch(() => {})
     return () => {

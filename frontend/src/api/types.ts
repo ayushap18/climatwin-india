@@ -18,7 +18,22 @@ export interface BBox {
   lat_max: number
 }
 
+export interface SourceMeta {
+  key: string
+  label: string
+  lst_source: string | null
+  lst_coverage: number | null
+  dates: { start: string; end: string; count: number }
+  featured_date: string
+  models: string[]
+  default_model: string | null
+  colorbar_ranges: Record<VarName, [number, number]>
+  status: 'active' | 'pending'
+  note: string
+}
+
 export interface Meta {
+  sources: SourceMeta[] // per-regime metadata for the top-bar source switcher
   region: string
   bbox: BBox
   res_deg: number
@@ -115,6 +130,9 @@ export interface ForecastDay {
 }
 
 export interface ForecastResp {
+  pending?: boolean // a read-only regime (no trained model yet) returns this instead of days
+  reason?: string
+  source?: string
   init_date: string
   model: string
   horizon: number

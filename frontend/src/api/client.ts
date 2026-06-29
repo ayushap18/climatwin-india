@@ -8,6 +8,21 @@ export type TwinStage = 'MIRROR' | 'ASSIMILATE' | 'SIMULATE' | 'PERTURB' | 'IMPA
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
+// --- active data-source regime, injected into every request ---------------------
+// Default 'synthetic' is the validated regime; we omit the param for it so URLs stay
+// clean and back-compatible. AppContext flips this (and clears the cache) on a switch.
+let currentSource = 'synthetic'
+export function setApiSource(s: string): void {
+  currentSource = s || 'synthetic'
+}
+export function getApiSource(): string {
+  return currentSource
+}
+function withSource(path: string): string {
+  if (currentSource === 'synthetic') return path
+  return `${path}${path.includes('?') ? '&' : '?'}source=${encodeURIComponent(currentSource)}`
+}
+
 // --- latency telemetry (module field; TopBar reads via getLastLatency) ---------
 let lastLatencyMs = 0
 export function getLastLatency(): number {
@@ -82,6 +97,7 @@ export function openTwinStream(opts: TwinStreamOpts, onMessage: (m: TwinTick) =>
   if (opts.assimilate != null) p.set('assimilate', String(opts.assimilate))
   if (opts.model) p.set('model', opts.model)
   if (opts.intervalMs != null) p.set('interval_ms', String(opts.intervalMs))
+  if (currentSource !== 'synthetic') p.set('source', currentSource)
   let ws: WebSocket | null = null
   try {
     ws = new WebSocket(`${WS_BASE}/ws/twin?${p.toString()}`)
@@ -126,7 +142,7 @@ export async function apiFetch<T>(
   const t0 = performance.now()
   if (opts.stage) twinBus.emit(opts.stage)
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(`${API_BASE}${withSource(path)}`, {
       method: opts.method ?? 'GET',
       headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
