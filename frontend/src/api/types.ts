@@ -182,6 +182,9 @@ export interface WhatIfDay {
 }
 
 export interface WhatIfResp {
+  pending?: boolean // a read-only regime (no trained model yet) returns this instead of days
+  reason?: string
+  source?: string
   init_date: string
   model: string
   horizon: number
@@ -274,6 +277,9 @@ export interface TwinDay {
 }
 
 export interface TwinRunResp {
+  pending?: boolean // a read-only regime (no trained model yet) returns this instead of days
+  reason?: string
+  source?: string
   anchor_date: string
   model: string
   horizon: number
@@ -310,6 +316,9 @@ export interface ModelMetrics {
 }
 
 export interface ValidateResp {
+  pending?: boolean // a regime whose metrics haven't been generated yet returns this
+  reason?: string
+  source?: string
   data_source: string
   split: Record<string, [number, number]>
   wet_day_threshold_mm: number
@@ -361,6 +370,7 @@ export interface DiffusionResp {
   truth: number[][]
   metrics: DiffusionMetrics | null
   note: string
+  source_note?: string // honest "downscaling is regime-independent (shared INDmet truth)" note
 }
 
 export interface DemAblation {
@@ -391,4 +401,5 @@ export interface DownscaleResp {
   improvement_pct: number | null
   data_source: string
   dem_ablation: DemAblation | null
+  source_note?: string // honest "downscaling is regime-independent (shared INDmet truth)" note
 }

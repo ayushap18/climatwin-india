@@ -75,12 +75,15 @@ export default function WhatIf() {
   }, [date, horizon, deltaTemp, rainPct, urbanLst, urbanPoints, model])
 
   const res = meta?.res_deg ?? 0.25
-  const latArr = result?.lat ?? state?.lat
-  const lonArr = result?.lon ?? state?.lon
+  // a read-only regime (no trained model) returns { pending } with no days/grid
+  const ok = result && !result.pending ? result : null
+  const isPending = !!result?.pending
+  const latArr = ok?.lat ?? state?.lat
+  const lonArr = ok?.lon ?? state?.lon
   const bounds = latArr && lonArr ? gridBounds(latArr, lonArr, res) : null
-  const unit = result?.units[activeVariable] ?? state?.units[activeVariable] ?? ''
+  const unit = ok?.units[activeVariable] ?? state?.units[activeVariable] ?? ''
 
-  const day = result?.days[Math.min(leadDay, result.days.length) - 1] ?? null
+  const day = ok ? (ok.days[Math.min(leadDay, ok.days.length) - 1] ?? null) : null
   const diff = day?.diff[activeVariable] ?? null
   const magnitude = diff ? Math.max(0.5, maxAbs(diff)) : 1
 
@@ -99,7 +102,7 @@ export default function WhatIf() {
 
         <div className="relative min-h-0 flex-1">
           {bounds && latArr && lonArr ? (
-            <DarkIndiaMap bounds={bounds}>
+            <DarkIndiaMap bounds={bounds} basemap={src?.key === 'insat_real' ? 'mosdac' : 'default'}>
               {diff && (
                 <DiffLayer diff={diff} lat={latArr} lon={lonArr} magnitude={magnitude} res={res} contrast={gridContrast} />
               )}
@@ -110,8 +113,10 @@ export default function WhatIf() {
               />
             </DarkIndiaMap>
           ) : (
-            <div className="grid h-full place-items-center font-mono text-xs text-muted">
-              loading scenario…
+            <div className="grid h-full place-items-center px-6 text-center font-mono text-xs text-muted">
+              {isPending
+                ? (result?.reason ?? 'this regime is read-only — no trained model yet')
+                : 'loading scenario…'}
             </div>
           )}
           <RegionLocator />
@@ -154,7 +159,7 @@ export default function WhatIf() {
               drawMode={drawMode}
               onToggleDraw={() => setDrawMode((d) => !d)}
               urbanPoints={urbanPoints.length}
-              urbanCells={result?.scenario_params.urban_cells ?? null}
+              urbanCells={ok?.scenario_params.urban_cells ?? null}
               onClearUrban={() => {
                 setUrbanPoints([])
                 setDrawMode(false)
@@ -171,9 +176,16 @@ export default function WhatIf() {
             baseline={day?.impacts_baseline ?? null}
             scenario={day?.impacts_scenario ?? null}
             heatThreshold={meta?.thresholds.heat_stress_tmax_c ?? 40}
-            sowingBase={result?.sowing_baseline ?? null}
-            sowingScen={result?.sowing_scenario ?? null}
+            sowingBase={ok?.sowing_baseline ?? null}
+            sowingScen={ok?.sowing_scenario ?? null}
           />
+          {src && src.key !== 'synthetic' && (
+            <div className="rounded-md border border-saffron/30 bg-saffron/5 px-2.5 py-2 font-mono text-[9px] leading-relaxed text-saffron/90">
+              {src.label} — baseline is the real INSAT-3D observation; the scenario re-simulates a
+              single-year ({src.dateStart.slice(0, 4)}) real-LST model under your perturbation, so
+              treat absolute values as indicative of direction, not calibrated magnitude.
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl border border-line bg-panel/40">

@@ -247,6 +247,11 @@ export default function Downscale() {
             2 · upsample back two ways — bilinear vs a trained SR-CNN.<br />
             3 · score each against the truth; lower RMSE wins.
           </div>
+          {ds?.source_note && (
+            <div className="rounded-md border border-isro/20 bg-isro/5 px-2.5 py-2 font-mono text-[9px] leading-relaxed text-muted/90">
+              {ds.source_note}
+            </div>
+          )}
           {meta?.highres_available && (
             <div className="rounded-md border border-saffron/30 bg-saffron/5 px-2.5 py-2 font-mono text-[9px] leading-relaxed text-muted/90">
               <div className="mb-1 text-saffron">validated vs real 5 km truth (INDmet 0.05°)</div>

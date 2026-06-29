@@ -74,7 +74,11 @@ export default function Twin() {
   const c = useThemeColors()
   const [stage, setStage] = useState<TwinStage | null>(null)
 
-  const models = meta?.models ?? []
+  // models/colorbar are per-regime: insat_real has its own forecasters + a different grid
+  // range, so reading meta.models (the synthetic list) would offer models the backend
+  // rejects in this regime. Fall back to the global lists for an older backend.
+  const sourceMeta = useMemo(() => meta?.sources?.find((s) => s.key === src?.key) ?? null, [meta, src])
+  const models = sourceMeta?.models ?? meta?.models ?? []
   const preferredModel = models.includes('convlstm')
     ? 'convlstm'
     : models.includes('persistence')
@@ -98,11 +102,14 @@ export default function Twin() {
   )
   const run = live && stream.run ? stream.run : restRun
 
-  // initialize model + anchor once meta is ready
+  // initialize model + anchor once meta is ready, and re-pick the model whenever the regime
+  // changes (the current pick may not exist in the new regime's forecaster set).
   useEffect(() => {
-    if (meta && !model) setModel(preferredModel)
-    if (meta && !anchor) setAnchor(addDaysISO(meta.latest_date, -horizon))
-  }, [meta, model, anchor, preferredModel, horizon])
+    if (!meta) return
+    if (!model || !models.includes(model)) setModel(preferredModel)
+    if (!anchor) setAnchor(addDaysISO(meta.latest_date, -horizon))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta, src?.key])
 
   useEffect(() => {
     if (!anchor || !model || live) return // live mode is fed by the WebSocket, not REST
@@ -136,7 +143,9 @@ export default function Twin() {
   }
 
   const day = run?.days[Math.min(lead, run.days.length) - 1] ?? null
-  const range = (meta?.colorbar_ranges?.[activeVariable] ?? [0, 1]) as [number, number]
+  const range = (sourceMeta?.colorbar_ranges?.[activeVariable] ??
+    meta?.colorbar_ranges?.[activeVariable] ??
+    [0, 1]) as [number, number]
   const unit = run?.units[activeVariable] ?? ''
 
   const realityF = day?.reality?.[activeVariable] ?? null
@@ -284,6 +293,14 @@ export default function Twin() {
       <aside className="flex min-h-0 flex-col gap-3">
         <div className="rounded-xl border border-line bg-panel/40 p-3">
           <PanelTitle>TWIN CONTROLS</PanelTitle>
+          {src && (
+            <div className="mt-2 flex items-center justify-between rounded-md border border-line bg-panel-2/50 px-2 py-1 font-mono text-[9px]">
+              <span className="tracking-[0.1em] text-saffron/80">{src.lstLabel}</span>
+              <span className="text-muted">
+                {src.dateStart.slice(0, 4)}–{src.dateEnd.slice(0, 4)}
+              </span>
+            </div>
+          )}
           <div className="mt-2 space-y-2.5">
             {/* the ASSIMILATE switch — the heart of the twin */}
             <button
@@ -341,6 +358,13 @@ export default function Twin() {
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl border border-line bg-panel/40 p-3">
           <PanelTitle>DRIFT · SYNC OVER LEAD</PanelTitle>
+          {src && src.key !== 'synthetic' && (
+            <div className="rounded-md border border-saffron/30 bg-saffron/5 px-2.5 py-2 font-mono text-[9px] leading-relaxed text-saffron/90">
+              Real INSAT-3D LST regime, single-year model: the twin tracks reality well at +1 day
+              but drifts faster by +7 days than the multi-year synthetic regime. Turn ASSIMILATE on
+              to nudge it back toward each observation.
+            </div>
+          )}
           <div className="h-[120px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 6, right: 6, bottom: 0, left: -22 }}>

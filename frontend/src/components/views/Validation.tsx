@@ -15,6 +15,7 @@ import type { ValidateResp } from '../../api/types'
 import { gridBounds } from '../../lib/grid'
 import { COLORMAPS } from '../../theme'
 import { useAppState } from '../../state/useAppState'
+import { useActiveSource } from '../../lib/sources'
 
 function maxOf(grid: number[][]): number {
   let m = 0
@@ -23,27 +24,44 @@ function maxOf(grid: number[][]): number {
 }
 
 export default function Validation() {
-  const { meta, gridContrast } = useAppState()
+  const { meta, gridContrast, source } = useAppState()
+  const { source: srcInfo } = useActiveSource()
   const res = meta?.res_deg ?? 0.25
   const [v, setV] = useState<ValidateResp | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState<string | null>(null) // regime metrics not generated yet
   const [horizon, setHorizon] = useState<string>('1')
   const [model, setModel] = useState<string>('')
 
+  // Refetch per data-source regime (the client appends ?source=). NOTE: passive effects
+  // flush child-first, so on an in-place source switch this runs BEFORE AppContext points
+  // the API client at the new regime + clears the cross-regime cache; defer one macrotask
+  // so the fetch carries the correct source and never returns stale synthetic metrics.
   useEffect(() => {
     let on = true
-    getValidate()
-      .then((res2) => {
-        if (!on) return
-        setV(res2)
-        setHorizon(Object.keys(res2.horizons)[0] ?? '1')
-        setModel(res2.summary_rmse[Object.keys(res2.horizons)[0]]?.tmax?.best as string ?? res2.models[0])
-      })
-      .catch((e) => on && setError(e.message))
+    setV(null)
+    setError(null)
+    setPending(null)
+    const t = window.setTimeout(() => {
+      getValidate()
+        .then((res2) => {
+          if (!on) return
+          if (res2.pending || !res2.horizons) {
+            setPending(res2.reason ?? 'validation metrics are not available for this regime yet')
+            return
+          }
+          setV(res2)
+          const h0 = Object.keys(res2.horizons)[0] ?? '1'
+          setHorizon(h0)
+          setModel((res2.summary_rmse[h0]?.tmax?.best as string) ?? res2.models[0])
+        })
+        .catch((e) => on && setError(e.message))
+    }, 0)
     return () => {
       on = false
+      window.clearTimeout(t)
     }
-  }, [])
+  }, [source])
 
   const errField = v?.horizons[horizon]?.[model]?.error_map_tmax_rmse ?? null
   const range = useMemo<[number, number]>(
@@ -64,7 +82,9 @@ export default function Validation() {
               split. Darker = lower error (better). This is the spatial view of the table at right.
             </InfoPopover>
           </div>
-          <div className="font-mono text-[10px] text-muted">test split</div>
+          <div className="font-mono text-[10px] text-muted">
+            {source && source !== 'synthetic' ? `${srcInfo?.lstLabel ?? source} · test split` : 'test split'}
+          </div>
         </div>
         <div className="relative min-h-0 flex-1">
           {bounds && v && errField ? (
@@ -72,8 +92,12 @@ export default function Validation() {
               <ErrorLayer field={errField} lat={v.lat} lon={v.lon} range={range} unit="°C" res={res} contrast={gridContrast} />
             </DarkIndiaMap>
           ) : (
-            <div className="grid h-full place-items-center font-mono text-xs text-muted">
-              {error ? `validation unavailable: ${error}` : 'loading metrics…'}
+            <div className="grid h-full place-items-center px-6 text-center font-mono text-xs text-muted">
+              {error
+                ? `validation unavailable: ${error}`
+                : pending
+                  ? pending
+                  : 'loading metrics…'}
             </div>
           )}
           <RegionLocator />
@@ -113,7 +137,7 @@ export default function Validation() {
           {v ? (
             <HonestSkillMatrix v={v} />
           ) : (
-            <div className="font-mono text-[10px] text-muted">{error ?? 'loading…'}</div>
+            <div className="font-mono text-[10px] text-muted">{pending ?? error ?? 'loading…'}</div>
           )}
         </div>
 
@@ -125,9 +149,16 @@ export default function Validation() {
               <div className="rounded-md border border-isro/20 bg-isro/5 px-2.5 py-2 font-mono text-[9px] leading-relaxed text-muted">
                 {v.note}
               </div>
+              {source && source !== 'synthetic' && srcInfo && (
+                <div className="rounded-md border border-saffron/30 bg-saffron/5 px-2.5 py-2 font-mono text-[9px] leading-relaxed text-saffron/90">
+                  {srcInfo.label} — skill is computed on this regime's held-out test split (real
+                  INSAT-3D LST). It is a single-year real-LST model, so persistence is a strong
+                  baseline at +1 day: amber cells (a baseline wins) are shown honestly, not hidden.
+                </div>
+              )}
             </>
           ) : (
-            <div className="font-mono text-[10px] text-muted">{error ?? 'loading…'}</div>
+            <div className="font-mono text-[10px] text-muted">{pending ?? error ?? 'loading…'}</div>
           )}
         </div>
 

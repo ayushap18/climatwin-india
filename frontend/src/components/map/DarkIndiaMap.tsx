@@ -10,6 +10,7 @@ import { loadIndiaAdm1, type IndiaFC } from '../../lib/geojson'
 import type { LatLngBounds } from '../../lib/grid'
 import { COLORS } from '../../theme'
 import { useAppState } from '../../state/useAppState'
+import MosdacBasemap from './MosdacBasemap'
 
 // State outline styling per theme — dark = glowing blue on near-black, light = crisp blue
 // on a pale wash so the same vectors read well on paper.
@@ -37,9 +38,11 @@ const OUTLINE_STYLE: Record<'dark' | 'light', PathOptions> = {
 export default function DarkIndiaMap({
   bounds,
   children,
+  basemap = 'default',
 }: {
   bounds: LatLngBounds
   children?: React.ReactNode
+  basemap?: 'default' | 'mosdac' // 'mosdac' = the richer satellite-style basemap (insat_real)
 }) {
   const { theme } = useAppState()
   const [india, setIndia] = useState<IndiaFC | null>(null)
@@ -65,12 +68,16 @@ export default function DarkIndiaMap({
       // follow the themed page background instead of a fixed near-black
       style={{ background: 'rgb(var(--bg))' }}
     >
-      {india && (
-        <GeoJSON
-          key={theme} // restyle outlines when the theme flips
-          data={india as unknown as GeoJSON.GeoJsonObject}
-          style={() => OUTLINE_STYLE[theme]}
-        />
+      {basemap === 'mosdac' ? (
+        <MosdacBasemap />
+      ) : (
+        india && (
+          <GeoJSON
+            key={theme} // restyle outlines when the theme flips
+            data={india as unknown as GeoJSON.GeoJsonObject}
+            style={() => OUTLINE_STYLE[theme]}
+          />
+        )
       )}
       {children}
     </MapContainer>
