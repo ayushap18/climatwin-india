@@ -52,13 +52,63 @@ class State:
 
 
 S = State()
+# Regime registry: 'synthetic' (validated 2000-2023 model, = S) and 'insat_real'
+# (focused 2020 cube with REAL INSAT-3D LST). The synthetic pipeline is the default
+# and stays exactly as before; insat_real is read-only/pending until its trained
+# checkpoint (convlstm_2020.pt) lands. Shared endpoints (downscale/diffusion/highres/
+# terrain/ai/brain/guide) always use the synthetic regime S.
+REGIMES: dict = {}
 
 
-def _build_twin(model: str) -> ClimateTwin:
-    """Fresh twin per request (cheap) reusing the cached forecaster + rain climatology."""
-    if model not in S.forecasters:
-        raise HTTPException(400, f"unknown model {model!r}; choose from {list(S.forecasters)}")
-    return ClimateTwin(S.cube, S.forecasters[model], S.norm, rain_clim=S.rain_clim)
+def _regime(source: Optional[str]) -> State:
+    """Return the regime State for a source key (default = synthetic)."""
+    return REGIMES.get(source or "synthetic", S)
+
+
+def _build_twin(model: str, source: str = "synthetic") -> ClimateTwin:
+    """Fresh twin per request (cheap) reusing the regime's cached forecaster + rain climatology."""
+    reg = _regime(source)
+    if model not in reg.forecasters:
+        raise HTTPException(400, f"unknown model {model!r} for source {source!r}; "
+                                 f"choose from {list(reg.forecasters)}")
+    return ClimateTwin(reg.cube, reg.forecasters[model], reg.norm, rain_clim=reg.rain_clim)
+
+
+def _load_regime_state(cube_path, norm_path, *, featured_pref, convlstm_ckpt=None) -> State:
+    """Load a parallel regime (its own cube + baselines + optional trained ConvLSTM)."""
+    reg = State()
+    reg.cube = xr.open_dataset(cube_path)
+    reg.norm = json.loads(norm_path.read_text()) if norm_path.exists() else {}
+    reg.data_source = reg.cube.attrs.get("data_source", "unknown")
+    reg.lats = reg.cube["lat"].values.round(4).tolist()
+    reg.lons = reg.cube["lon"].values.round(4).tolist()
+    reg.dates = [str(t)[:10] for t in reg.cube["time"].values]
+    reg.featured = featured_pref if featured_pref in reg.dates else reg.dates[-1]
+    # A focused one-year regime fits baselines on its OWN (month-based) train range,
+    # not the project's year-based config.SPLIT (which would be empty here).
+    train_range = (reg.norm.get("_split_dates") or {}).get("train")
+    from models.baselines import ClimatologyForecaster, PersistenceForecaster
+    reg.forecasters = {
+        "persistence": PersistenceForecaster(),
+        "climatology": ClimatologyForecaster().fit(reg.cube, train_range=train_range),
+    }
+    # analog needs a multi-year archive — skip for a single-year regime.
+    if convlstm_ckpt is not None and convlstm_ckpt.exists():
+        try:
+            from models.convlstm import ConvLSTMForecaster
+            reg.forecasters["convlstm"] = ConvLSTMForecaster(checkpoint_path=convlstm_ckpt, cube=reg.cube)
+            print(f"[backend] regime ConvLSTM loaded ({convlstm_ckpt.name})")
+        except Exception as e:
+            print(f"[backend] regime ConvLSTM not loaded ({type(e).__name__}: {e})")
+    seed = ClimateTwin(reg.cube, reg.forecasters["climatology"], reg.norm, train_range=train_range)
+    reg.rain_clim = seed._rain_clim
+    reg.ranges = {}
+    for v in cfg.VARS:
+        lo, hi = np.nanpercentile(reg.cube[v].values, [2, 98])
+        reg.ranges[v] = [round(float(lo), 2), round(float(hi), 2)]
+    reg.has_model = "convlstm" in reg.forecasters  # the real trained model for this regime
+    reg.default_model = "convlstm" if reg.has_model else None
+    return reg
 
 
 @asynccontextmanager
@@ -141,15 +191,35 @@ async def lifespan(app: FastAPI):
         else "climatology"
     )
 
+    # --- regime registry: synthetic (= S, the validated default) + insat_real (2020) --- #
+    S.has_model = True  # the validated regime always forecasts
+    REGIMES["synthetic"] = S
+    cube2020 = cfg.DATA_DIR / "twin_cube_2020.nc"
+    norm2020 = cfg.DATA_DIR / "norm_stats_2020.json"
+    if cube2020.exists():
+        try:
+            REGIMES["insat_real"] = _load_regime_state(
+                cube2020, norm2020, featured_pref="2020-07-15",
+                convlstm_ckpt=cfg.CKPT_DIR / "convlstm_2020.pt")
+            r = REGIMES["insat_real"]
+            print(f"[backend] insat_real regime ready: {r.dates[0]}..{r.dates[-1]} "
+                  f"lst={r.cube.attrs.get('lst_source')} "
+                  f"forecast={'ACTIVE (convlstm_2020)' if r.has_model else 'PENDING (read-only)'}")
+        except Exception as e:
+            print(f"[backend] insat_real regime not loaded ({type(e).__name__}: {e})")
+
     # warm the caches for the featured (default) date / default horizon
-    _state_payload(S.featured)
-    _forecast_payload(S.featured, cfg.H_HORIZON, S.default_model)
+    _state_payload(S.featured, "synthetic")
+    _forecast_payload(S.featured, cfg.H_HORIZON, S.default_model, "synthetic")
     print(f"[backend] ready: source={S.data_source} dates {S.dates[0]}..{S.dates[-1]} "
           f"featured={S.featured} grid {len(S.lats)}x{len(S.lons)}")
     yield
     S.cube.close()
     if getattr(S, "indmet", None) is not None:
         S.indmet.close()
+    r2 = REGIMES.get("insat_real")
+    if r2 is not None and r2 is not S:
+        r2.cube.close()
 
 
 app = FastAPI(title="ClimaTwin India API", version="0.1.0", lifespan=lifespan)
@@ -172,15 +242,16 @@ def _fields(field: np.ndarray) -> dict:
     return {cfg.VARS[c]: _grid(field[c]) for c in range(len(cfg.VARS))}
 
 
-def _validate_date(date: Optional[str]) -> str:
+def _validate_date(date: Optional[str], source: str = "synthetic") -> str:
+    reg = _regime(source)
     if date is None:
-        return S.featured
+        return reg.featured
     try:
         d = str(pd.Timestamp(date).date())
     except (ValueError, TypeError):
         raise HTTPException(422, f"invalid date {date!r}; expected YYYY-MM-DD")
-    if d < S.dates[0] or d > S.dates[-1]:
-        raise HTTPException(404, f"date {d} outside available range {S.dates[0]}..{S.dates[-1]}")
+    if d < reg.dates[0] or d > reg.dates[-1]:
+        raise HTTPException(404, f"date {d} outside range {reg.dates[0]}..{reg.dates[-1]} for source {source!r}")
     return d
 
 
@@ -188,16 +259,19 @@ def _validate_date(date: Optional[str]) -> str:
 # Cached payload builders (the slow-ish work lives here).
 # --------------------------------------------------------------------------- #
 @lru_cache(maxsize=512)
-def _state_payload(date: str) -> dict:
-    tw = _build_twin("climatology")
+def _state_payload(date: str, source: str = "synthetic") -> dict:
+    reg = _regime(source)
+    tw = _build_twin("climatology", source)
     tw.initialize(date)
     field = tw.state
     impacts = tw.impacts(field, tw.current_date)
     return {
         "date": str(tw.current_date.date()),
-        "data_source": S.data_source,
-        "lat": S.lats,
-        "lon": S.lons,
+        "data_source": reg.data_source,
+        "source": source,
+        "lst_source": reg.cube.attrs.get("lst_source"),
+        "lat": reg.lats,
+        "lon": reg.lons,
         "units": cfg.UNITS,
         "fields": _fields(field),
         "impacts": impacts,
@@ -205,8 +279,9 @@ def _state_payload(date: str) -> dict:
 
 
 @lru_cache(maxsize=512)
-def _forecast_payload(date: str, horizon: int, model: str) -> dict:
-    tw = _build_twin(model)
+def _forecast_payload(date: str, horizon: int, model: str, source: str = "synthetic") -> dict:
+    reg = _regime(source)
+    tw = _build_twin(model, source)
     tw.initialize(date)
     preds = tw.step(horizon=horizon)
     start = tw.current_date
@@ -223,9 +298,10 @@ def _forecast_payload(date: str, horizon: int, model: str) -> dict:
         "init_date": str(start.date()),
         "model": model,
         "horizon": horizon,
-        "data_source": S.data_source,
-        "lat": S.lats,
-        "lon": S.lons,
+        "data_source": reg.data_source,
+        "source": source,
+        "lat": reg.lats,
+        "lon": reg.lons,
         "units": cfg.UNITS,
         "days": days,
         "sowing_window": tw.sowing_window(preds),
@@ -397,9 +473,44 @@ def health():
             "dates": [S.dates[0], S.dates[-1]], "region": cfg.PILOT["name"]}
 
 
+def _sources_meta() -> list:
+    """Per-regime metadata for the top-bar source switcher (dates/models/status)."""
+    labels = {"synthetic": "IMD · Synthetic LST", "insat_real": "IMD · INSAT-3D LST"}
+    out = []
+    for key in ("synthetic", "insat_real"):
+        reg = REGIMES.get(key)
+        if reg is None:
+            continue
+        active = (key == "synthetic") or getattr(reg, "has_model", False)
+        if key == "synthetic":
+            note = (f"Validated regime — IMD national data with a synthetic LST channel over the "
+                    f"full {reg.dates[0][:4]}–{reg.dates[-1][:4]} record.")
+        elif active:
+            note = (f"Real INSAT-3D LST fused and trained (2020). Satellite-era regime "
+                    f"{reg.dates[0][:4]}–{reg.dates[-1][:4]}.")
+        else:
+            note = ("Real INSAT-3D LST (2020) — observations available; the trained model is "
+                    "pending (awaiting convlstm_2020.pt from Colab), so forecasts are read-only.")
+        out.append({
+            "key": key,
+            "label": labels.get(key, key),
+            "lst_source": reg.cube.attrs.get("lst_source"),
+            "lst_coverage": reg.cube.attrs.get("lst_coverage"),
+            "dates": {"start": reg.dates[0], "end": reg.dates[-1], "count": len(reg.dates)},
+            "featured_date": reg.featured,
+            "models": list(reg.forecasters.keys()),
+            "default_model": reg.default_model,
+            "colorbar_ranges": reg.ranges,
+            "status": "active" if active else "pending",
+            "note": note,
+        })
+    return out
+
+
 @app.get("/meta")
 def meta():
     return {
+        "sources": _sources_meta(),
         "region": cfg.PILOT["name"],
         "bbox": {"lon_min": cfg.PILOT["lon_min"], "lat_min": cfg.PILOT["lat_min"],
                  "lon_max": cfg.PILOT["lon_max"], "lat_max": cfg.PILOT["lat_max"]},
@@ -440,8 +551,9 @@ def meta():
 
 
 @app.get("/state")
-def state(date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to latest")):
-    return _state_payload(_validate_date(date))
+def state(date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to latest"),
+          source: str = Query("synthetic", description="data regime: synthetic | insat_real")):
+    return _state_payload(_validate_date(date, source), source)
 
 
 @lru_cache(maxsize=256)
@@ -491,10 +603,20 @@ def forecast(
     model: Optional[str] = Query(None, description="forecaster; defaults to best available"),
     uncertainty: bool = Query(False, description="ConvLSTM MC-dropout uncertainty bands"),
     samples: int = Query(30, ge=5, le=60, description="MC-dropout ensemble size"),
+    source: str = Query("synthetic", description="data regime: synthetic | insat_real"),
 ):
-    d = _validate_date(date)
-    resolved = model or S.default_model
-    if uncertainty:
+    reg = _regime(source)
+    d = _validate_date(date, source)
+    # read-only regime (e.g. insat_real before its trained checkpoint lands) -> honest pending
+    if source != "synthetic" and not getattr(reg, "has_model", False):
+        return {
+            "pending": True, "source": source, "init_date": d,
+            "reason": (f"the {source!r} regime is read-only — its trained model is pending "
+                       f"(awaiting convlstm_2020.pt from Colab). Observations are available via /state."),
+            "available_models": list(reg.forecasters.keys()),
+        }
+    resolved = model or reg.default_model
+    if uncertainty and source == "synthetic":
         if resolved == "convlstm" and "convlstm" in S.forecasters:
             return _forecast_uncertainty_payload(d, horizon, samples)
         if resolved == "analog" and "analog" in S.forecasters:
@@ -502,13 +624,13 @@ def forecast(
         if resolved == "ensemble" and "ensemble" in S.forecasters:
             return _forecast_conformal_payload(d, horizon)  # calibrated conformal bands
         # graceful fallback: deterministic forecast + a clear note (never crash)
-        payload = dict(_forecast_payload(d, horizon, resolved))
+        payload = dict(_forecast_payload(d, horizon, resolved, source))
         payload["uncertainty_note"] = (
             f"uncertainty bands require the 'convlstm' model (MC-dropout); "
             f"resolved model is {resolved!r}, so a deterministic forecast was returned."
         )
         return payload
-    return _forecast_payload(d, horizon, resolved)
+    return _forecast_payload(d, horizon, resolved, source)
 
 
 @app.get("/analog")

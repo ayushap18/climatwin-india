@@ -58,9 +58,13 @@ class ClimatologyForecaster(Forecaster):
     def __init__(self):
         self.doy_mean: np.ndarray | None = None  # (366, C, H, W)
 
-    def fit(self, cube: xr.Dataset) -> "ClimatologyForecaster":
-        ty0, ty1 = cfg.SPLIT["train"]
-        train = cube.sel(time=slice(f"{ty0}-01-01", f"{ty1}-12-31"))
+    def fit(self, cube: xr.Dataset, train_range=None) -> "ClimatologyForecaster":
+        if train_range is not None:
+            t0, t1 = train_range
+        else:
+            ty0, ty1 = cfg.SPLIT["train"]
+            t0, t1 = f"{ty0}-01-01", f"{ty1}-12-31"
+        train = cube.sel(time=slice(t0, t1))
         stacks = []
         for v in cfg.VARS:
             grp = train[v].groupby("time.dayofyear").mean("time")  # (doy, lat, lon)

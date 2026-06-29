@@ -26,7 +26,9 @@ from config import RAIN, TMAX, TMIN
 
 
 class ClimateTwin:
-    def __init__(self, cube: xr.Dataset, model, norm: Optional[dict] = None, rain_clim=None):
+    def __init__(self, cube: xr.Dataset, model, norm: Optional[dict] = None, rain_clim=None,
+                 train_range=None):
+        self._train_range = train_range  # (t0,t1) ISO dates for sub-year regimes; else config.SPLIT
         self.cube = cube
         self.model = model
         self.norm = norm or {}
@@ -57,8 +59,12 @@ class ClimateTwin:
         return [a.astype("float32") for a in arr]
 
     def _fit_rain_climatology(self):
-        ty0, ty1 = cfg.SPLIT["train"]
-        train = self.cube["rainfall"].sel(time=slice(f"{ty0}-01-01", f"{ty1}-12-31"))
+        if self._train_range is not None:
+            t0, t1 = self._train_range
+        else:
+            ty0, ty1 = cfg.SPLIT["train"]
+            t0, t1 = f"{ty0}-01-01", f"{ty1}-12-31"
+        train = self.cube["rainfall"].sel(time=slice(t0, t1))
         # per-day-of-year mean/std over training years, then grid-mean for a scalar index.
         g = train.groupby("time.dayofyear")
         mean = g.mean("time")  # (doy, lat, lon)
