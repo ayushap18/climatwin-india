@@ -32,9 +32,19 @@ from models.convlstm import (
 SEED = 0
 
 
-def _years_slice(ds, split):
+def _split_slice(ds, split, norm):
+    """Slice a split, supporting both year-based (config.SPLIT) and DATE-based splits.
+
+    A date-based split lives in norm['_split_dates'] (e.g. the focused 2020 cube uses
+    months: train Jan-Sep / val Oct / test Nov-Dec). K_INPUT lead-in days are included
+    before the split start so the first windows are complete.
+    """
+    sd = norm.get("_split_dates")
+    if sd:
+        t0, t1 = sd[split]
+        lead = pd.Timestamp(t0) - pd.Timedelta(days=cfg.K_INPUT)
+        return ds.sel(time=slice(lead, t1)), pd.Timestamp(t0)
     y0, y1 = cfg.SPLIT[split]
-    # include K_INPUT lead-in days before the split start so windows are complete
     lead = pd.Timestamp(f"{y0}-01-01") - pd.Timedelta(days=cfg.K_INPUT)
     return ds.sel(time=slice(lead, f"{y1}-12-31")), pd.Timestamp(f"{y0}-01-01")
 
@@ -45,7 +55,7 @@ def make_dataset(ds: xr.Dataset, split: str, norm: dict, elev: np.ndarray, elev_
 
     X: (N, k, Cin, H, W) normalized inputs.  Y: (N, 3, H, W) normalized targets.
     """
-    sub, first_target = _years_slice(ds, split)
+    sub, first_target = _split_slice(ds, split, norm)
     raw = np.stack([sub[v].values for v in cfg.VARS], axis=1).astype("float32")  # (T,3,H,W)
     raw_lst = sub["lst"].values.astype("float32") if has_lst else None
     times = pd.to_datetime(sub["time"].values)
@@ -96,7 +106,7 @@ def two_head_loss(pred, target, torch, wet_norm_thresh: float):
 
 
 def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed=SEED,
-          patience=10, two_head=True):
+          patience=10, two_head=True, cube_path=None, norm_path=None, out_name="convlstm.pt"):
     import torch
     from torch.utils.data import DataLoader, TensorDataset
 
@@ -107,9 +117,14 @@ def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed
     print(f"[train] device={device}")
 
     cfg.ensure_dirs()
-    ds = xr.open_dataset(cfg.CUBE_PATH)
-    norm = json.loads(cfg.NORM_STATS_PATH.read_text())
-    elev = ds["elevation"].isel(time=0).values.astype("float32")
+    cube_path = cube_path or cfg.CUBE_PATH
+    norm_path = norm_path or cfg.NORM_STATS_PATH
+    print(f"[train] cube={cube_path}  norm={norm_path}  out={out_name}")
+    ds = xr.open_dataset(cube_path)
+    norm = json.loads(open(norm_path).read())
+    # elevation may be static (lat,lon) or broadcast (time,lat,lon)
+    _elev_da = ds["elevation"]
+    elev = (_elev_da.isel(time=0) if "time" in _elev_da.dims else _elev_da).values.astype("float32")
     elev_stat = elevation_stats(elev)
     has_lst = "lst" in ds and "lst" in norm
     print(f"[train] INSAT LST fusion: {'ON' if has_lst else 'off'}")
@@ -175,7 +190,7 @@ def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed
             break
 
     cfg.CKPT_DIR.mkdir(parents=True, exist_ok=True)
-    out = cfg.CKPT_DIR / "convlstm.pt"
+    out = cfg.CKPT_DIR / out_name
     torch.save({
         "state_dict": best_state or model.state_dict(),
         "norm": norm,
@@ -186,6 +201,9 @@ def train(epochs=60, hidden=64, n_layers=2, dropout=0.1, lr=2e-3, batch=32, seed
         "two_head": two_head,
         "best_val_loss": best_val,
         "data_source": ds.attrs.get("data_source", "unknown"),
+        "lst_source": ds.attrs.get("lst_source", "unknown"),
+        "regime": ds.attrs.get("regime"),
+        "split_dates": norm.get("_split_dates"),
         "k_input": cfg.K_INPUT,
         "trained_horizon": 1,
         "seed": seed,
@@ -204,11 +222,15 @@ def main():
     p.add_argument("--seed", type=int, default=SEED)
     p.add_argument("--no-two-head", dest="two_head", action="store_false",
                    help="use the legacy single weighted-MSE rainfall head")
+    p.add_argument("--cube", default=None, help="cube path (default config.CUBE_PATH)")
+    p.add_argument("--norm", default=None, help="norm-stats path (default config.NORM_STATS_PATH)")
+    p.add_argument("--out", default="convlstm.pt", help="checkpoint filename under checkpoints/")
     p.set_defaults(two_head=True)
     args = p.parse_args()
     t0 = time.time()
     train(epochs=args.epochs, hidden=args.hidden, n_layers=args.layers,
-          lr=args.lr, batch=args.batch, seed=args.seed, two_head=args.two_head)
+          lr=args.lr, batch=args.batch, seed=args.seed, two_head=args.two_head,
+          cube_path=args.cube, norm_path=args.norm, out_name=args.out)
     print(f"[train] done in {time.time() - t0:.1f}s")
 
 

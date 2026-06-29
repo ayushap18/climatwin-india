@@ -42,7 +42,10 @@ zip -r -q "${OUT}" . \
 if [ "${WITH_DATA}" = "1" ]; then
   # indmet_cube_005.nc (0.05° truth) ships so the diffusion downscaler trains on Colab
   # without re-downloading ~6 GB from Zenodo.
-  for f in data/twin_cube.nc data/norm_stats.json data/insat_lst.nc data/indmet_cube_005.nc; do
+  # twin_cube_2020.nc + norm_stats_2020.json ship the REAL-INSAT-3D-LST 2020 cube so
+  # the focused one-year model trains on Colab GPU without rebuilding it there.
+  for f in data/twin_cube.nc data/norm_stats.json data/insat_lst.nc data/indmet_cube_005.nc \
+           data/twin_cube_2020.nc data/norm_stats_2020.json; do
     [ -f "$f" ] && zip -q "${OUT}" "$f" && echo "[bundle] +included $f"
   done
 fi
