@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
+import SmoothField from '../map/SmoothField'
 import InfoPopover from '../panels/InfoPopover'
 import { getDiffusion, getDownscale, getHighres } from '../../api/endpoints'
 import type { DiffusionMetrics, DiffusionResp, DownscaleResp, HighresResp, VarName } from '../../api/types'
@@ -567,12 +568,36 @@ function DiffusionEnsemble({
     return Math.max(m, 0.5)
   }, [d])
 
+  // up to 2 raw stochastic members from /downscale/diffusion (additive backend field — read
+  // defensively so this view renders them when present and stays correct if absent).
+  const sampleGrids =
+    (d as (DiffusionResp & { sample_grids?: number[][][] }) | null)?.sample_grids ?? []
+
+  // headline pixel-RMSE improvement vs the bilinear baseline. Positive for smooth temp fields;
+  // honestly negative for rainfall (sharp detail placed slightly wrong is double-penalised) —
+  // there diffusion wins on CRPS/FSS instead, which we say rather than hide.
+  const pctRMSE = d?.metrics
+    ? Math.round((100 * (d.metrics.bilinear_rmse - d.metrics.diffusion_rmse)) / d.metrics.bilinear_rmse)
+    : null
+
   return (
     <div className="rounded-lg border border-isro/40 bg-isro/5 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="font-mono text-[10px] tracking-[0.14em] text-isro">
-          DIFFUSION ENSEMBLE · {varName.toUpperCase()} · CorrDiff-style 0.25°→0.05°
-        </span>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] tracking-[0.14em] text-isro">
+            DIFFUSION ENSEMBLE · {varName.toUpperCase()} · CorrDiff-style 0.25°→0.05°
+          </span>
+          {pctRMSE != null &&
+            (pctRMSE >= 0 ? (
+              <span className="rounded border border-online/40 bg-online/10 px-1.5 py-0.5 font-mono text-[8px] tracking-[0.08em] text-online">
+                +{pctRMSE}% RMSE vs bilinear
+              </span>
+            ) : (
+              <span className="rounded border border-saffron/40 bg-saffron/10 px-1.5 py-0.5 font-mono text-[8px] tracking-[0.08em] text-saffron">
+                RMSE +{Math.abs(pctRMSE)}% vs bilinear — wins on CRPS/FSS
+              </span>
+            ))}
+        </div>
         <button
           onClick={run}
           disabled={loading}
@@ -581,24 +606,38 @@ function DiffusionEnsemble({
           {loading ? 'sampling…' : d ? 'RESAMPLE' : 'GENERATE ENSEMBLE'}
         </button>
       </div>
+      <div className="mb-2 font-mono text-[8px] text-muted/70">
+        SR/diffusion trained on INDmet 0.05° truth · 2020 coverage
+      </div>
 
       {d?.metrics && <MetricCompare m={d.metrics} />}
 
       {d ? (
         <div className="mt-3 flex flex-wrap items-end justify-center gap-3">
-          <DiffThumb title="BILINEAR" sub="smooth baseline" field={d.bilinear} varName={varName} range={range} contrast={contrast} />
+          <DiffThumb title="BILINEAR" sub="Bilinear upsample · 40×60 · ~5.5 km/cell" field={d.bilinear} varName={varName} range={range} contrast={contrast} />
           <span className="pb-7 text-muted/40">→</span>
-          <DiffThumb title="DIFFUSION MEAN" sub={`${d.samples}-member ensemble`} field={d.mean} varName={varName} range={range} contrast={contrast} accent />
+          <DiffThumb title="DIFFUSION MEAN" sub={`${d.samples}-member ensemble mean · 40×60 · ~5.5 km/cell`} field={d.mean} varName={varName} range={range} contrast={contrast} accent />
           <DiffThumb
             title="UNCERTAINTY ±σ"
-            sub="ensemble spread"
+            sub="Ensemble spread (σ) · 40×60 · ~5.5 km/cell"
             field={d.std}
             varName={varName}
             range={[0, stdMax]}
             contrast={contrast}
             colorFn={(v) => colorForScale(v, [0, stdMax], 'error', contrast)}
           />
-          <DiffThumb title="REAL 0.05°" sub="INDmet truth" field={d.truth} varName={varName} range={range} contrast={contrast} real />
+          <DiffThumb title="REAL 0.05°" sub="INDmet 0.05° truth · ~5.5 km/cell" field={d.truth} varName={varName} range={range} contrast={contrast} real />
+          {sampleGrids.slice(0, 2).map((sg, i) => (
+            <DiffThumb
+              key={i}
+              title={`SAMPLE ${i + 1}`}
+              sub="Stochastic sample · 40×60 · ~5.5 km/cell"
+              field={sg}
+              varName={varName}
+              range={range}
+              contrast={contrast}
+            />
+          ))}
         </div>
       ) : (
         <div className="mt-3 text-center font-mono text-[9px] text-muted/70">
@@ -664,13 +703,16 @@ function DiffThumb({
 }) {
   const color = real ? COLORS.online : accent ? COLORS.saffron : COLORS.ink
   const outline = real ? 'rgba(54,211,153,0.5)' : accent ? 'rgba(255,138,61,0.5)' : COLORS.line
+  // smooth, photographic render of the fine 40×60 field (value-space bilinear + canvas) — the
+  // realistic-imagery requirement; falls back to the variable's perceptual palette.
+  const fill = colorFn ?? ((v: number) => colorForValue(varName, v, range, contrast))
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="rounded-md" style={{ outline: `1px solid ${outline}` }}>
-        <Grid field={field} varName={varName} range={range} contrast={contrast} w={130} colorFn={colorFn} />
+    <div className="flex w-[130px] flex-col items-center gap-1">
+      <div className="overflow-hidden rounded-md" style={{ outline: `1px solid ${outline}` }}>
+        <SmoothField field={field} colorFn={fill} width={130} />
       </div>
       <div className="font-mono text-[9px] tracking-[0.08em]" style={{ color }}>{title}</div>
-      <div className="font-mono text-[8px] text-muted/70">{sub}</div>
+      <div className="text-center font-mono text-[8px] leading-snug text-muted/70">{sub}</div>
     </div>
   )
 }

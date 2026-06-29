@@ -128,6 +128,38 @@ function TerrainMesh({ field, dem, variable, range, contrast = 1, onCellClick }:
   )
 }
 
+/**
+ * Visible selection marker on the terrain surface: an amber ring + pillar placed at the
+ * clicked cell's world position. Purely additive — it does NOT touch the TerrainMesh render
+ * path (meshBasicMaterial + baked hillshade). The world mapping is the inverse of
+ * handleClick's so the marker lands exactly where the user clicked and agrees with the
+ * top-left readout (selValue = field[selected.row][selected.col]).
+ */
+function SelectionMarker({ selected, dem }: { selected: { row: number; col: number }; dem: number[][] }) {
+  const H = dem.length
+  const W = dem[0].length
+  let dmin = Infinity
+  let dmax = -Infinity
+  for (const row of dem) for (const v of row) if (Number.isFinite(v)) { if (v < dmin) dmin = v; if (v > dmax) dmax = v }
+  if (!Number.isFinite(dmin) || dmax <= dmin) { dmin = 0; dmax = 1 }
+  const elev = bilinear(dem, selected.row, selected.col)
+  const wx = (selected.col / (W - 1)) * PLANE_W - PLANE_W / 2
+  const wz = (0.5 - selected.row / (H - 1)) * PLANE_H
+  const wy = (Number.isFinite(elev) ? normalize(elev, dmin, dmax) : 0) * EXAGGERATION + 0.07
+  return (
+    <group>
+      <mesh position={[wx, wy, wz]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.1, 0.18, 32]} />
+        <meshBasicMaterial color="#f59e0b" side={THREE.DoubleSide} transparent opacity={0.95} />
+      </mesh>
+      <mesh position={[wx, wy + 0.12, wz]}>
+        <cylinderGeometry args={[0.018, 0.018, 0.24, 8]} />
+        <meshBasicMaterial color="#f59e0b" />
+      </mesh>
+    </group>
+  )
+}
+
 /** Vertical gradient legend for the active variable, drawn over the canvas. */
 function Legend({ variable, range, unit }: { variable: LayerVar; range: [number, number]; unit?: string }) {
   const stops = COLORMAPS[variable] ?? COLORMAPS.tmax
@@ -169,6 +201,7 @@ export default function Terrain3D(props: Props) {
           <color attach="background" args={['#070b14']} />
           <SatelliteBackdrop />
           <TerrainMesh {...props} />
+          {selected && <SelectionMarker selected={selected} dem={dem} />}
           <OrbitControls
             enablePan
             enableDamping

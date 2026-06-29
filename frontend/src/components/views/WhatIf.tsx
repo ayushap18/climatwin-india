@@ -12,7 +12,7 @@ import WhatIfPanel from '../whatif/WhatIfPanel'
 import ScenarioDeltas from '../whatif/ScenarioDeltas'
 import ProvenanceFooter from '../shell/ProvenanceFooter'
 import { postWhatIf } from '../../api/endpoints'
-import type { WhatIfResp } from '../../api/types'
+import type { VarName, WhatIfResp } from '../../api/types'
 import { gridBounds } from '../../lib/grid'
 import { COLORMAPS } from '../../theme'
 import { prettyDate } from '../../lib/format'
@@ -90,13 +90,16 @@ export default function WhatIf() {
   // a read-only regime (no trained model) returns { pending } with no days/grid
   const ok = result && !result.pending ? result : null
   const isPending = !!result?.pending
+  // 'lst' is observation-only; the /whatif diff only carries rainfall/tmax/tmin.
+  // Fall back to tmax so the diff map + legend render under the insat_real (LST) regime.
+  const diffVar = (activeVariable === 'lst' ? 'tmax' : activeVariable) as VarName
   const latArr = ok?.lat ?? state?.lat
   const lonArr = ok?.lon ?? state?.lon
   const bounds = latArr && lonArr ? gridBounds(latArr, lonArr, res) : null
-  const unit = ok?.units[activeVariable] ?? state?.units[activeVariable] ?? ''
+  const unit = ok?.units[diffVar] ?? state?.units[diffVar] ?? ''
 
   const day = ok ? (ok.days[Math.min(leadDay, ok.days.length) - 1] ?? null) : null
-  const diff = day?.diff[activeVariable] ?? null
+  const diff = day?.diff[diffVar] ?? null
   const magnitude = diff ? Math.max(0.5, maxAbs(diff)) : 1
 
   return (
@@ -105,7 +108,7 @@ export default function WhatIf() {
       <section className="relative flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-line bg-panel/40">
         <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
           <div className="font-mono text-[11px] tracking-[0.22em] text-ink">
-            SCENARIO DIFF · Δ{activeVariable.toUpperCase()}
+            SCENARIO DIFF · Δ{diffVar.toUpperCase()}
           </div>
           <div className="font-mono text-[10px] text-muted">
             {day

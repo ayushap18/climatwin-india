@@ -379,12 +379,12 @@ export default function Explore() {
 
       {compare && meta && (
         <CompareModal
-          date={meta.latest_date}
+          date={anchorDate ?? src?.featured ?? meta.latest_date}
           variable={activeVariable === 'lst' ? 'tmax' : activeVariable}
           horizon={horizon}
           range={range}
-          models={meta.models}
-          defaultModel={model ?? meta.default_model}
+          models={srcMeta?.models ?? meta.models}
+          defaultModel={model ?? srcMeta?.default_model ?? meta.default_model}
           contrast={gridContrast}
           onClose={() => setCompare(false)}
         />
