@@ -15,6 +15,7 @@ the dashboard never lags while scrubbing the time slider.
 from __future__ import annotations
 
 import json
+import math
 from contextlib import asynccontextmanager
 from functools import lru_cache
 import asyncio
@@ -247,6 +248,18 @@ app.add_middleware(
 # --------------------------------------------------------------------------- #
 def _grid(arr: np.ndarray) -> list:
     return np.round(np.nan_to_num(arr, nan=0.0).astype(float), ROUND).tolist()
+
+
+def _json_nan_to_null(obj):
+    """Recursively replace NaN/Inf floats with None so the payload is valid JSON.
+    Used for metrics loaded from disk that honestly carry NaN (e.g. undefined corr)."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_nan_to_null(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_nan_to_null(v) for v in obj]
+    return obj
 
 
 def _fields(field: np.ndarray, *, reg: Optional[State] = None,
@@ -684,10 +697,19 @@ class WhatIfRequest(BaseModel):
 
 
 @app.post("/whatif")
-def whatif(req: WhatIfRequest):
-    date = _validate_date(req.date)
-    model = req.model or S.default_model
-    tw = _build_twin(model)
+def whatif(req: WhatIfRequest, source: str = Query("synthetic", description="data regime: synthetic | insat_real")):
+    reg = _regime(source)
+    date = _validate_date(req.date, source)
+    # read-only regime (e.g. insat_real before its trained checkpoint lands) -> honest pending
+    if source != "synthetic" and not getattr(reg, "has_model", False):
+        return {
+            "pending": True, "source": source, "init_date": date,
+            "reason": (f"the {source!r} regime is read-only — its trained model is pending "
+                       f"(awaiting convlstm_2020.pt from Colab). Observations are available via /state."),
+            "available_models": list(reg.forecasters.keys()),
+        }
+    model = req.model or reg.default_model
+    tw = _build_twin(model, source)
     tw.initialize(date)
     mask = _polygon_to_mask(req.urban_polygon) if req.urban_polygon else None
     res = tw.whatif(
@@ -718,8 +740,9 @@ def whatif(req: WhatIfRequest):
             "delta_temp": req.delta_temp, "rain_factor": req.rain_factor,
             "urban_lst": req.urban_lst, "urban_cells": int(mask.sum()) if mask is not None else 0,
         },
-        "data_source": S.data_source,
-        "lat": S.lats, "lon": S.lons, "units": cfg.UNITS,
+        "data_source": reg.data_source,
+        "source": source,
+        "lat": reg.lats, "lon": reg.lons, "units": _units(reg),
         "days": days,
         "sowing_baseline": tw.sowing_window(res["baseline"]),
         "sowing_scenario": tw.sowing_window(res["scenario"]),
@@ -761,9 +784,10 @@ def _twin_step_entry(tw: ClimateTwin, s: dict) -> dict:
 
 
 @lru_cache(maxsize=128)
-def _twin_run_payload(date: str, horizon: int, assimilate: bool, model: str) -> dict:
+def _twin_run_payload(date: str, horizon: int, assimilate: bool, model: str, source: str = "synthetic") -> dict:
     """REALITY vs TWIN drift over the horizon, running the genuine ClimateTwin loop."""
-    tw = _build_twin(model)
+    reg = _regime(source)
+    tw = _build_twin(model, source)
     steps = tw.run_twin(date, horizon=horizon, assimilate=assimilate)
     days = [_twin_step_entry(tw, s) for s in steps]
     return {
@@ -771,10 +795,11 @@ def _twin_run_payload(date: str, horizon: int, assimilate: bool, model: str) -> 
         "model": model,
         "horizon": horizon,
         "assimilate": assimilate,
-        "data_source": S.data_source,
-        "lat": S.lats,
-        "lon": S.lons,
-        "units": cfg.UNITS,
+        "data_source": reg.data_source,
+        "source": source,
+        "lat": reg.lats,
+        "lon": reg.lons,
+        "units": _units(reg),
         "sync_ref_tmax_c": SYNC_REF_TMAX_C,
         "days": days,
     }
@@ -786,14 +811,24 @@ def twin_run(
     horizon: int = Query(cfg.H_HORIZON, ge=1, le=cfg.MAX_HORIZON),
     assimilate: bool = Query(False, description="nudge the twin toward each day's observation"),
     model: Optional[str] = Query(None, description="forecaster; defaults to best available"),
+    source: str = Query("synthetic", description="data regime: synthetic | insat_real"),
 ):
     """Run the digital-twin loop and return REALITY vs TWIN fields + divergence + sync."""
+    reg = _regime(source)
+    # read-only regime (e.g. insat_real before its trained checkpoint lands) -> honest pending
+    if source != "synthetic" and not getattr(reg, "has_model", False):
+        return {
+            "pending": True, "source": source,
+            "reason": (f"the {source!r} regime is read-only — its trained model is pending "
+                       f"(awaiting convlstm_2020.pt from Colab). Observations are available via /state."),
+            "available_models": list(reg.forecasters.keys()),
+        }
     # default the anchor far enough back that real observations exist for every lead day
     if date is None:
-        anchor = pd.Timestamp(S.dates[-1]) - pd.Timedelta(days=horizon)
+        anchor = pd.Timestamp(reg.dates[-1]) - pd.Timedelta(days=horizon)
         date = str(anchor.date())
-    d = _validate_date(date)
-    return _twin_run_payload(d, horizon, assimilate, model or S.default_model)
+    d = _validate_date(date, source)
+    return _twin_run_payload(d, horizon, assimilate, model or reg.default_model, source)
 
 
 @app.websocket("/ws/twin")
@@ -809,32 +844,44 @@ async def ws_twin(ws: WebSocket):
     await ws.accept()
     try:
         q = ws.query_params
+        source = q.get("source", "synthetic")
+        reg = _regime(source)
         horizon = max(1, min(cfg.MAX_HORIZON, int(q.get("horizon", cfg.H_HORIZON))))
         assimilate = q.get("assimilate", "true").lower() in ("1", "true", "yes")
-        model = q.get("model") or S.default_model
+        model = q.get("model") or reg.default_model
         interval = max(0.12, min(3.0, float(q.get("interval_ms", 700)) / 1000.0))
+        # read-only regime (e.g. insat_real before its trained checkpoint lands) -> honest error
+        if source != "synthetic" and not getattr(reg, "has_model", False):
+            await ws.send_json({
+                "type": "error", "pending": True,
+                "message": (f"the {source!r} regime is read-only — its trained model is pending "
+                            f"(awaiting convlstm_2020.pt). Observations are available via /state."),
+            })
+            await ws.close()
+            return
         date = q.get("date")
         if date:
-            date = _validate_date(date)
+            date = _validate_date(date, source)
         else:
-            anchor = pd.Timestamp(S.dates[-1]) - pd.Timedelta(days=horizon)
+            anchor = pd.Timestamp(reg.dates[-1]) - pd.Timedelta(days=horizon)
             date = str(anchor.date())
-        if model not in S.forecasters:
+        if model not in reg.forecasters:
             await ws.send_json({"type": "error", "message": f"unknown model {model!r}"})
             await ws.close()
             return
 
-        tw = _build_twin(model)
+        tw = _build_twin(model, source)
         steps = tw.run_twin(date, horizon=horizon, assimilate=assimilate)
         await ws.send_json({
             "type": "init",
             "anchor_date": str(pd.Timestamp(date).date()),
             "region": cfg.PILOT["name"],
             "model": model,
+            "source": source,
             "assimilate": assimilate,
             "horizon": horizon,
             "total_steps": len(steps),
-            "lat": S.lats, "lon": S.lons, "units": cfg.UNITS,
+            "lat": reg.lats, "lon": reg.lons, "units": _units(reg),
         })
         # stream each twin day as a live "tick", pacing with a small delay
         for s in steps:
@@ -857,26 +904,47 @@ async def ws_twin(ws: WebSocket):
 
 
 @app.get("/validate")
-def validate():
-    if not cfg.METRICS_PATH.exists():
-        raise HTTPException(404, "validation_metrics.json not found. Run `make validate`.")
-    out = json.loads(cfg.METRICS_PATH.read_text())
-    # attach the ensemble's split-conformal calibration (verified coverage vs the 90% target)
-    wpath = cfg.MODELS_DIR / "ensemble_weights.json"
-    if wpath.exists():
-        try:
-            w = json.loads(wpath.read_text())
-            out["calibration"] = {
-                "alpha": w.get("alpha"),
-                "target": round(1.0 - float(w.get("alpha", 0.1)), 2),
-                # prefer the OUT-OF-SAMPLE test coverage (honest); fall back to calib
-                "coverage": w.get("test_coverage") or w.get("calib_coverage"),
-                "coverage_split": "test" if w.get("test_coverage") else "calib",
-                "halfwidth": w.get("conformal_halfwidth"),
-                "split": w.get("split"),
+def validate(source: str = Query("synthetic", description="data regime: synthetic | insat_real")):
+    if source == "synthetic":
+        metrics_path = cfg.METRICS_PATH
+    elif source == "insat_real":
+        metrics_path = cfg.DATA_DIR / "validation_metrics_2020.json"
+    else:
+        raise HTTPException(400, f"unknown source {source!r}")
+    if not metrics_path.exists():
+        if source == "insat_real":
+            # honest pending: the REAL 2020 metrics have not been generated yet
+            return {
+                "pending": True, "source": source,
+                "reason": ("2020 validation metrics not yet generated — "
+                           "run `python -m models.validate_2020`."),
             }
-        except Exception:
-            pass
+        raise HTTPException(404, "validation_metrics.json not found. Run `make validate`.")
+    out = json.loads(metrics_path.read_text())
+    out["source"] = source
+    # the split-conformal calibration is a synthetic-ensemble artifact; the insat_real
+    # regime has no fitted ensemble/conformal band, so do NOT fabricate one for it.
+    if source == "synthetic":
+        # attach the ensemble's split-conformal calibration (verified coverage vs the 90% target)
+        wpath = cfg.MODELS_DIR / "ensemble_weights.json"
+        if wpath.exists():
+            try:
+                w = json.loads(wpath.read_text())
+                out["calibration"] = {
+                    "alpha": w.get("alpha"),
+                    "target": round(1.0 - float(w.get("alpha", 0.1)), 2),
+                    # prefer the OUT-OF-SAMPLE test coverage (honest); fall back to calib
+                    "coverage": w.get("test_coverage") or w.get("calib_coverage"),
+                    "coverage_split": "test" if w.get("test_coverage") else "calib",
+                    "halfwidth": w.get("conformal_halfwidth"),
+                    "split": w.get("split"),
+                }
+            except Exception:
+                pass
+    else:
+        # the real 2020 metrics legitimately contain NaN (e.g. correlation is undefined
+        # for the constant climatology field) — JSON has no NaN, so emit null honestly.
+        out = _json_nan_to_null(out)
     return out
 
 
@@ -884,6 +952,7 @@ def validate():
 def downscale(
     date: Optional[str] = Query(None, description="date YYYY-MM-DD; defaults to latest"),
     var: str = Query("rainfall", description="variable to downscale (rainfall is the honest target)"),
+    source: str = Query("synthetic", description="data regime: synthetic | insat_real"),
 ):
     """SR-CNN downscaling demo: coarse (~1deg) -> 0.25deg vs bilinear baseline.
 
@@ -892,7 +961,9 @@ def downscale(
     """
     if var not in cfg.VARS:
         raise HTTPException(400, f"unknown var {var!r}; choose from {cfg.VARS}")
-    d = _validate_date(date)
+    # validate the date against the requested regime's range (insat_real = 2020),
+    # but the downscaling itself is regime-independent (shared INDmet 0.05° truth).
+    d = _validate_date(date, source)
     ds = _get_downscaler()  # raises 503 if no checkpoint
     from models.downscale import block_mean_coarsen, bilinear_to
 
@@ -917,6 +988,9 @@ def downscale(
         "srcnn_rmse": sr_rmse,
         "improvement_pct": round(imp, 2) if imp is not None else None,
         "data_source": ds.data_source,
+        "source": source,
+        "source_note": ("Downscaling is regime-independent: the SR-CNN is evaluated against the "
+                        "shared INDmet 0.05° truth (which covers 2020), not regime-specific magic."),
         # DEM ablation (with vs without the OpenTopography elevation channel), if computed
         "dem_ablation": (json.loads((cfg.MODELS_DIR / "downscale_ablation.json").read_text())
                          if (cfg.MODELS_DIR / "downscale_ablation.json").exists() else None),
@@ -973,6 +1047,9 @@ def _diffusion_payload(date: str, samples: int, var: str) -> dict:
         "truth": _grid(e["truth"]),      # real INDmet 0.05° (the validation target)
         "metrics": metrics,
         "note": note,
+        "source_note": ("Downscaling is regime-independent: the diffusion ensemble is evaluated "
+                        "against the shared INDmet 0.05° truth (which covers 2020), not "
+                        "regime-specific magic."),
     }
 
 
@@ -981,11 +1058,14 @@ def downscale_diffusion(
     date: Optional[str] = Query(None, description="date YYYY-MM-DD; defaults to latest"),
     samples: int = Query(6, ge=2, le=24, description="ensemble members"),
     var: str = Query("rainfall", description="variable (rainfall/tmax/tmin) with a trained model"),
+    source: str = Query("synthetic", description="data regime: synthetic | insat_real"),
 ):
     """Diffusion-ensemble downscaling 0.25°→0.05° on real INDmet truth: bilinear baseline,
     ensemble mean (sharp), ensemble spread (uncertainty), the real 0.05° field + skill metrics."""
     dd = _get_diffusion(var)  # 503 if no checkpoint for this var
-    d = _validate_date(date)
+    # validate the date against the requested regime's range (insat_real = 2020); the
+    # diffusion downscaling itself is regime-independent (shared INDmet 0.05° truth).
+    d = _validate_date(date, source)
     if d not in dd.dates:
         raise HTTPException(404, f"date {d} not in the INDmet 0.05° record")
     return _diffusion_payload(d, samples, var)
