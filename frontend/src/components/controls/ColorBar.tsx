@@ -1,7 +1,7 @@
 // ColorBar.tsx — legend for the active variable. The gradient matches the grid colormap
 // and the lo/hi labels come straight from meta.colorbar_ranges so colors == data scale.
 
-import type { VarName } from '../../api/types'
+import type { LayerVar } from '../../api/types'
 import { gradientCss } from '../../lib/colormaps'
 
 export default function ColorBar({
@@ -9,7 +9,7 @@ export default function ColorBar({
   range,
   unit,
 }: {
-  variable: VarName
+  variable: LayerVar
   range: [number, number]
   unit?: string
 }) {

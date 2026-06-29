@@ -40,6 +40,15 @@ export const COLORMAPS: Record<string, ColorStop[]> = {
     [0.5, '#27d3e6'],
     [1.0, '#2b6cff'],
   ],
+  // lst — INSAT-3D land-skin thermal (IR): violet -> magenta -> orange -> pale yellow,
+  // deliberately distinct from tmax so the real satellite layer reads as a thermal product.
+  lst: [
+    [0.0, '#0d0b2b'],
+    [0.35, '#7b1f6b'],
+    [0.65, '#e0552b'],
+    [0.85, '#ffaa33'],
+    [1.0, '#fff2b0'],
+  ],
   // elevation — hypsometric relief: low plains (green) -> tan -> brown hills -> pale peaks
   elevation: [
     [0.0, '#1f3d2b'],

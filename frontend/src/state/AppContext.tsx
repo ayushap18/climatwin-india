@@ -14,7 +14,7 @@ import {
 import { getForecast, getHealth, getMeta, getState } from '../api/endpoints'
 import { setApiSource } from '../api/client'
 import { cacheClear } from '../api/cache'
-import type { ForecastResp, Health, Meta, StateResp, VarName } from '../api/types'
+import type { ForecastResp, Health, LayerVar, Meta, StateResp } from '../api/types'
 
 export type ViewId = 'overview' | 'twin' | 'explore' | 'whatif' | 'validation' | 'downscale'
 export type BootStatus = 'booting' | 'ready' | 'error'
@@ -27,7 +27,7 @@ export interface AppState {
   state: StateResp | null
   forecast: ForecastResp | null
   activeView: ViewId
-  activeVariable: VarName
+  activeVariable: LayerVar
   model: string | null
   source: string | null // selected data-source regime key (see lib/sources.ts)
   initDate: string | null
@@ -69,7 +69,7 @@ type Action =
   | { type: 'SET_STATE'; state: StateResp }
   | { type: 'SET_FORECAST'; forecast: ForecastResp }
   | { type: 'SET_VIEW'; view: ViewId }
-  | { type: 'SET_VARIABLE'; variable: VarName }
+  | { type: 'SET_VARIABLE'; variable: LayerVar }
   | { type: 'SET_MODEL'; model: string }
   | { type: 'SET_SOURCE'; source: string }
   | { type: 'SET_HORIZON'; horizon: number }
@@ -109,9 +109,16 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_SOURCE': {
       if (action.source === state.source) return state
       const sm = state.meta?.sources?.find((s) => s.key === action.source)
+      // if the active layer is a regime-extra (e.g. 'lst') the new source doesn't carry,
+      // fall back to tmax so the map never points at a missing layer
+      const extras = sm?.extra_vars ?? []
+      const baseVars: string[] = ['rainfall', 'tmax', 'tmin']
+      const keepVar =
+        baseVars.includes(state.activeVariable) || extras.includes(state.activeVariable)
       return {
         ...state,
         source: action.source,
+        activeVariable: keepVar ? state.activeVariable : 'tmax',
         // adopt the regime's own default model + featured date; clear stale fields so
         // views show loading until the source-effect refetches (see AppProvider).
         model: sm?.default_model ?? state.model,

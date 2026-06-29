@@ -2,7 +2,7 @@
 // per-variable stops in theme.ts and the data range from meta.colorbar_ranges.
 
 import { COLORMAPS, sampleColormap } from '../theme'
-import type { VarName } from '../api/types'
+import type { LayerVar } from '../api/types'
 
 /** Apply a contrast curve around the 0.5 midpoint (c>1 steepens, c<1 flattens). */
 export function applyContrast(t: number, contrast = 1): number {
@@ -18,7 +18,7 @@ export function normalize(value: number, lo: number, hi: number, contrast = 1): 
 
 /** Color for a variable value given its [lo,hi] colorbar range. */
 export function colorForValue(
-  variable: VarName,
+  variable: LayerVar,
   value: number,
   range: [number, number],
   contrast = 1,
@@ -44,7 +44,7 @@ export function colorForDiff(value: number, magnitude: number, contrast = 1): st
 }
 
 /** CSS linear-gradient string for a variable's colorbar (left=lo, right=hi). */
-export function gradientCss(variable: VarName): string {
+export function gradientCss(variable: LayerVar): string {
   const stops = COLORMAPS[variable] ?? COLORMAPS.tmax
   const parts = stops.map(([pos, hex]) => `${hex} ${Math.round(pos * 100)}%`)
   return `linear-gradient(90deg, ${parts.join(', ')})`

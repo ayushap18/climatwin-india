@@ -14,12 +14,13 @@ import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { colorForValue, normalize } from '../../lib/colormaps'
 import { sampleColormap, COLORMAPS } from '../../theme'
-import type { VarName } from '../../api/types'
+import type { LayerVar } from '../../api/types'
+import SatelliteBackdrop from './SatelliteBackdrop'
 
 interface Props {
   field: number[][] // selected variable, (H,W) raw units
   dem: number[][] // elevation, (H,W) metres
-  variable: VarName
+  variable: LayerVar
   range: [number, number] // colorbar range for the variable
   unit?: string
   contrast?: number
@@ -128,7 +129,7 @@ function TerrainMesh({ field, dem, variable, range, contrast = 1, onCellClick }:
 }
 
 /** Vertical gradient legend for the active variable, drawn over the canvas. */
-function Legend({ variable, range, unit }: { variable: VarName; range: [number, number]; unit?: string }) {
+function Legend({ variable, range, unit }: { variable: LayerVar; range: [number, number]; unit?: string }) {
   const stops = COLORMAPS[variable] ?? COLORMAPS.tmax
   const gradient = `linear-gradient(to top, ${[0, 0.25, 0.5, 0.75, 1]
     .map((t) => sampleColormap(stops, t))
@@ -166,6 +167,7 @@ export default function Terrain3D(props: Props) {
           onPointerUp={() => setOrbiting(false)}
         >
           <color attach="background" args={['#070b14']} />
+          <SatelliteBackdrop />
           <TerrainMesh {...props} />
           <OrbitControls
             enablePan

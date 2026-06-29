@@ -12,6 +12,7 @@ import { SkeletonGrid } from '../ui/Skeleton'
 import CompareModal from './CompareModal'
 import TimeSlider from '../controls/TimeSlider'
 import LayerSwitch from '../controls/LayerSwitch'
+import MapModeToggle from '../controls/MapModeToggle'
 import ColorBar from '../controls/ColorBar'
 import ModelSelect from '../controls/ModelSelect'
 import UncertaintyToggle from '../controls/UncertaintyToggle'
@@ -59,7 +60,12 @@ export default function Explore() {
   const tl = useTimeline(anchorDate)
 
   const res = meta?.res_deg ?? 0.25
-  const range = (meta?.colorbar_ranges?.[activeVariable] ?? [0, 1]) as [number, number]
+  // colorbar range comes from the ACTIVE regime (the 2020 regime has its own ranges + the
+  // real LST range); fall back to the top-level meta, then [0,1].
+  const srcMeta = meta?.sources?.find((s) => s.key === (src?.key ?? 'synthetic'))
+  const range = (srcMeta?.colorbar_ranges?.[activeVariable] ??
+    meta?.colorbar_ranges?.[activeVariable] ??
+    [0, 1]) as [number, number]
   const unit = state?.units[activeVariable] ?? ''
   const maxH = meta?.max_horizon ?? 14
 
@@ -71,7 +77,7 @@ export default function Explore() {
   const [hires, setHires] = useState(false)
   const [hr, setHr] = useState<HighresResp | null>(null)
   const frame = tl.activeFrame
-  const hrVarOk = !!meta?.highres_available && (meta?.highres_vars ?? []).includes(activeVariable)
+  const hrVarOk = activeVariable !== 'lst' && !!meta?.highres_available && (meta?.highres_vars ?? []).includes(activeVariable)
   const hrDateOk = frame?.kind === 'observed' || frame?.kind === 'now'
   useEffect(() => {
     if (!hires || !hrVarOk || !hrDateOk || !frame?.date) {
@@ -104,6 +110,9 @@ export default function Explore() {
 
   // INSAT-3D regime gets the 3D terrain-relief map (distinct from synthetic's flat map).
   const is3D = src?.key === 'insat_real'
+  // within the INSAT-3D regime the user can switch between the 3D terrain and a flat 2D map
+  const [mapMode, setMapMode] = useState<'3d' | '2d'>('3d')
+  const show3D = is3D && mapMode === '3d'
   const [demGrid, setDemGrid] = useState<number[][] | null>(null)
   useEffect(() => {
     if (!is3D || demGrid || !meta?.terrain_available) return
@@ -184,7 +193,7 @@ export default function Explore() {
         </div>
 
         <div className="relative min-h-0 flex-1">
-          {is3D ? (
+          {show3D ? (
             field && demGrid ? (
               <Terrain3D
                 field={field}
@@ -236,8 +245,8 @@ export default function Explore() {
           ) : (
             <SkeletonGrid rows={9} cols={13} />
           )}
-          {!is3D && <RainOverlay intensity={rainIntensity} />}
-          {!is3D && <RegionLocator />}
+          {!show3D && <RainOverlay intensity={rainIntensity} />}
+          {!show3D && <RegionLocator />}
         </div>
 
         <TimeSlider
@@ -255,6 +264,7 @@ export default function Explore() {
         <div className="rounded-xl border border-line bg-panel/40 p-3">
           <PanelTitle>LAYER &amp; MODEL</PanelTitle>
           <div className="mt-2 space-y-2.5">
+            {is3D && <MapModeToggle value={mapMode} onChange={setMapMode} />}
             <LayerSwitch />
             <ColorBar variable={activeVariable} range={range} unit={unit} />
             <ModelSelect />
@@ -318,7 +328,11 @@ export default function Explore() {
           <ImpactBadges impacts={tl.activeData?.impacts ?? null} />
           {forecast?.analogs?.length ? <AnalogMatches analogs={forecast.analogs} /> : null}
           <SowingCard sowing={forecast?.sowing_window ?? null} />
-          {selectedCell && state && selectedCell.row < state.lat.length && selectedCell.col < state.lon.length ? (
+          {activeVariable === 'lst' ? (
+            <div className="py-3 text-center font-mono text-[10px] text-muted/70">
+              INSAT-3D LST is an observed satellite layer — no forecast series.
+            </div>
+          ) : selectedCell && state && selectedCell.row < state.lat.length && selectedCell.col < state.lon.length ? (
             <div>
               <div className="mb-1 font-mono text-[10px] text-muted">
                 CELL {state.lat[selectedCell.row]?.toFixed(2)}°N,{' '}
@@ -348,7 +362,7 @@ export default function Explore() {
       {compare && meta && (
         <CompareModal
           date={meta.latest_date}
-          variable={activeVariable}
+          variable={activeVariable === 'lst' ? 'tmax' : activeVariable}
           horizon={horizon}
           range={range}
           models={meta.models}

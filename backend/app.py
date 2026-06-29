@@ -47,6 +47,7 @@ class State:
     lats: list
     lons: list
     ranges: dict
+    extra_vars: List[str]  # regime-extra OBSERVATION layers beyond cfg.VARS (e.g. real LST)
     data_source: str
     default_model: str
 
@@ -106,6 +107,14 @@ def _load_regime_state(cube_path, norm_path, *, featured_pref, convlstm_ckpt=Non
     for v in cfg.VARS:
         lo, hi = np.nanpercentile(reg.cube[v].values, [2, 98])
         reg.ranges[v] = [round(float(lo), 2), round(float(hi), 2)]
+    # REAL INSAT-3D land-skin temperature (degC): a regime-extra OBSERVATION channel,
+    # NOT a forecast variable — it is never added to cfg.VARS (the model channel contract
+    # stays C=3) and only appears for regimes whose cube actually carries it.
+    reg.extra_vars = []
+    if "lst" in reg.cube.data_vars:
+        lo, hi = np.nanpercentile(reg.cube["lst"].values, [2, 98])
+        reg.ranges["lst"] = [round(float(lo), 2), round(float(hi), 2)]
+        reg.extra_vars = ["lst"]
     reg.has_model = "convlstm" in reg.forecasters  # the real trained model for this regime
     reg.default_model = "convlstm" if reg.has_model else None
     return reg
@@ -162,6 +171,8 @@ async def lifespan(app: FastAPI):
         arr = S.cube[v].values
         lo, hi = np.nanpercentile(arr, [2, 98])
         S.ranges[v] = [round(float(lo), 2), round(float(hi), 2)]
+    # the validated synthetic regime exposes no extra observation layers (no real LST)
+    S.extra_vars = []
 
     # optional INDmet 0.05° (~5 km) high-res OBSERVED layer (genuine finer data, not a model)
     S.indmet = None
@@ -238,8 +249,24 @@ def _grid(arr: np.ndarray) -> list:
     return np.round(np.nan_to_num(arr, nan=0.0).astype(float), ROUND).tolist()
 
 
-def _fields(field: np.ndarray) -> dict:
-    return {cfg.VARS[c]: _grid(field[c]) for c in range(len(cfg.VARS))}
+def _fields(field: np.ndarray, *, reg: Optional[State] = None,
+            date: Optional[str] = None) -> dict:
+    """Forecast vars from the (C,H,W) state array, plus any regime-extra OBSERVATION
+    layer (e.g. real INSAT-3D LST) read directly from the regime cube for the given date.
+    LST lives in the cube, NOT in the twin state array (cfg.VARS stays length-3)."""
+    out = {cfg.VARS[c]: _grid(field[c]) for c in range(len(cfg.VARS))}
+    # only regimes that flagged LST as a real EXTRA observation layer expose it (the
+    # synthetic cube carries a synthetic lst we deliberately do NOT surface)
+    if reg is not None and date is not None and "lst" in getattr(reg, "extra_vars", []):
+        out["lst"] = _grid(reg.cube["lst"].sel(time=date).values)
+    return out
+
+
+def _units(reg: Optional[State] = None) -> dict:
+    """Display units; appends the LST unit only when the regime exposes an LST layer."""
+    if reg is not None and "lst" in getattr(reg, "extra_vars", []):
+        return {**cfg.UNITS, "lst": "degC"}
+    return cfg.UNITS
 
 
 def _validate_date(date: Optional[str], source: str = "synthetic") -> str:
@@ -272,8 +299,9 @@ def _state_payload(date: str, source: str = "synthetic") -> dict:
         "lst_source": reg.cube.attrs.get("lst_source"),
         "lat": reg.lats,
         "lon": reg.lons,
-        "units": cfg.UNITS,
-        "fields": _fields(field),
+        "units": _units(reg),
+        # forecast vars (rainfall/tmax/tmin) + real LST observation layer for regimes that carry it
+        "fields": _fields(field, reg=reg, date=str(tw.current_date.date())),
         "impacts": impacts,
     }
 
@@ -500,7 +528,9 @@ def _sources_meta() -> list:
             "featured_date": reg.featured,
             "models": list(reg.forecasters.keys()),
             "default_model": reg.default_model,
-            "colorbar_ranges": reg.ranges,
+            "colorbar_ranges": reg.ranges,  # includes "lst" only for regimes carrying real LST
+            # regime-extra OBSERVATION layers selectable beyond the 3 forecast vars (e.g. real LST)
+            "extra_vars": list(getattr(reg, "extra_vars", [])),
             "status": "active" if active else "pending",
             "note": note,
         })

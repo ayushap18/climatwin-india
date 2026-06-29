@@ -4,7 +4,7 @@
 // frame (observed /state or a /forecast day), so this takes a raw field array.
 
 import { Rectangle, Tooltip } from 'react-leaflet'
-import type { VarName } from '../../api/types'
+import type { LayerVar } from '../../api/types'
 import { colorForValue } from '../../lib/colormaps'
 import { cellsFor, type Cell } from '../../lib/grid'
 import { COLORS } from '../../theme'
@@ -14,7 +14,7 @@ interface Props {
   field: number[][]
   lat: number[]
   lon: number[]
-  variable: VarName
+  variable: LayerVar
   unit: string
   range: [number, number]
   res: number

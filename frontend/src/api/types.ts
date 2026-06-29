@@ -3,6 +3,10 @@
 // synthetic cube with only persistence/climatology, no downscale, no MC-dropout std.
 
 export type VarName = 'rainfall' | 'tmax' | 'tmin'
+// LayerVar widens VarName with regime-extra OBSERVATION layers (real INSAT-3D LST). It is
+// used only on the map/layer-selection path; forecast/whatif/twin types keep using VarName
+// (the 3 forecast channels) so their strict typing is never loosened.
+export type LayerVar = VarName | 'lst'
 
 export interface Health {
   status: string
@@ -27,7 +31,8 @@ export interface SourceMeta {
   featured_date: string
   models: string[]
   default_model: string | null
-  colorbar_ranges: Record<VarName, [number, number]>
+  colorbar_ranges: Record<string, [number, number]> // includes 'lst' only for regimes carrying real LST
+  extra_vars: string[] // regime-extra observation layers beyond the 3 forecast vars (e.g. ['lst'])
   status: 'active' | 'pending'
   note: string
 }
@@ -40,7 +45,7 @@ export interface Meta {
   grid: { lat: number[]; lon: number[]; shape: [number, number] }
   variables: VarName[]
   units: Record<string, string>
-  colorbar_ranges: Record<VarName, [number, number]>
+  colorbar_ranges: Record<string, [number, number]>
   dates: { start: string; end: string; count: number }
   latest_date: string
   true_latest_date: string
@@ -93,7 +98,9 @@ export interface TerrainResp {
   source: string
 }
 
-export type Fields = Record<VarName, number[][]>
+// the 3 forecast channels are always present; 'lst' appears only on observed /state for
+// the insat_real regime (never on forecast/whatif/twin frames).
+export type Fields = Record<VarName, number[][]> & Partial<Record<'lst', number[][]>>
 
 export interface Impacts {
   dryness_index: number
