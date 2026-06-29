@@ -423,6 +423,7 @@ class DiffusionDownscaler:
         lo = float(min(np.nanpercentile(true, 2), 0.0)) if self.var != "rainfall" else 0.0
         hi = float(max(np.nanpercentile(true, 98), 1.0))
         return {"bilinear": bil, "mean": ens.mean(0), "std": ens.std(0),
+                "members": ens,  # (n,H,W) individual ensemble realizations (for sample thumbnails)
                 "truth": true, "range": [round(lo, 2), round(hi, 2)],
                 "lat": self.lat, "lon": self.lon, "shape": [self.H, self.W]}
 

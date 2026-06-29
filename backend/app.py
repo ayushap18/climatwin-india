@@ -1045,6 +1045,8 @@ def _diffusion_payload(date: str, samples: int, var: str) -> dict:
         "mean": _grid(e["mean"]),        # ensemble mean — the sharp downscaled field
         "std": _grid(e["std"]),          # ensemble spread — where the model is uncertain
         "truth": _grid(e["truth"]),      # real INDmet 0.05° (the validation target)
+        "sample_grids": [_grid(m) for m in e["members"][:3]],  # individual ensemble realizations
+        "n_members": int(len(e["members"])),
         "metrics": metrics,
         "note": note,
         "source_note": ("Downscaling is regime-independent: the diffusion ensemble is evaluated "
