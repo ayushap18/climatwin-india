@@ -172,8 +172,16 @@ class ConvLSTMForecaster(Forecaster):
             lst = cube["lst"]
             self._lst_dates = pd.to_datetime(cube["time"].values)
             self._lst_arr = lst.values.astype("float32")
-            ty0, ty1 = cfg.SPLIT["train"]
-            tr = lst.sel(time=slice(f"{ty0}-01-01", f"{ty1}-12-31"))
+            # Build the LST day-of-year climatology over this checkpoint's TRAIN window.
+            # A focused regime stores month-based dates in ckpt['split_dates']; the default
+            # synthetic model uses the year-based config.SPLIT. (Train-only -> no leakage.)
+            sd = ckpt.get("split_dates")
+            if sd and sd.get("train"):
+                t0, t1 = sd["train"]
+            else:
+                ty0, ty1 = cfg.SPLIT["train"]
+                t0, t1 = f"{ty0}-01-01", f"{ty1}-12-31"
+            tr = lst.sel(time=slice(t0, t1))
             clim = tr.groupby("time.dayofyear").mean("time")
             table = np.zeros((367,) + self._lst_arr.shape[1:], dtype="float32")
             for i, d in enumerate(clim["dayofyear"].values):
