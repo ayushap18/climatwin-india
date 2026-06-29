@@ -214,6 +214,11 @@ async def lifespan(app: FastAPI):
                 cube2020, norm2020, featured_pref="2020-07-15",
                 convlstm_ckpt=cfg.CKPT_DIR / "convlstm_2020.pt")
             r = REGIMES["insat_real"]
+            # Dryness/SPI is a rainfall ANOMALY vs climatology — but a single-year cube has
+            # only one sample per day-of-year (std=0), so every day equals its own climatology
+            # and the anomaly is always 0. Use the multi-year IMD climatology (S.rain_clim,
+            # 2000-2018, same 9x13 grid-mean) so 2020 dryness is a real anomaly.
+            r.rain_clim = S.rain_clim
             print(f"[backend] insat_real regime ready: {r.dates[0]}..{r.dates[-1]} "
                   f"lst={r.cube.attrs.get('lst_source')} "
                   f"forecast={'ACTIVE (convlstm_2020)' if r.has_model else 'PENDING (read-only)'}")
