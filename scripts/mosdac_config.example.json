@@ -1,7 +1,7 @@
 {
-  "_comment": "Copy this to data/mosdac_config.json (gitignored) and fill in your MOSDAC credentials. Used by `make insat-real` to fetch INSAT-3D LST granules. Register + get approval at https://www.mosdac.gov.in/ first. bbox is minLon,minLat,maxLon,maxLat for the Delhi-NCR pilot.",
+  "_comment": "Copy this to data/mosdac_config.json (gitignored) and fill in your MOSDAC credentials. Used by `make insat-real` / `python -m data.ingest_insat --source real` to fetch INSAT-3D LST granules via data/mosdac_client.py (native client). Register + get account APPROVAL at https://www.mosdac.gov.in/ first (search is public; DOWNLOAD needs an approved account). Key names match ISRO's actual mdapi client: note 'username/email' (not 'username'), 'skip_user_input', 'generate_error_logs'. Dates are YYYY-MM-DD; INSAT-3D LST exists from ~2014 onward, so pick a window within 2014..2023 that overlaps the trained cube (2000-2023). boundingBox is minLon,minLat,maxLon,maxLat for the Delhi-NCR pilot.",
   "user_credentials": {
-    "username": "YOUR_MOSDAC_USERNAME",
+    "username/email": "YOUR_MOSDAC_USERNAME",
     "password": "YOUR_MOSDAC_PASSWORD"
   },
   "search_parameters": {
@@ -9,12 +9,14 @@
     "startTime": "2020-06-01",
     "endTime": "2020-09-30",
     "boundingBox": "75.5,27.5,78.5,29.5",
-    "count": 100
+    "count": 100,
+    "gId": ""
   },
   "download_settings": {
     "download_path": "data/raw/insat",
     "organize_by_date": false,
-    "skip_user_prompt": true,
-    "generate_error_log": true
+    "skip_user_input": true,
+    "generate_error_logs": true,
+    "error_logs_dir": ""
   }
 }

@@ -29,6 +29,11 @@ data/raw/
 data/*.nc
 data/*.json
 
+# downloaded ISRO MOSDAC client (mdapi.zip) — third-party + writes credentials into its config.json
+data/mdapi/
+# any stray credential configs (mosdac_config.json is data/*.json above; be explicit too)
+**/mosdac_config.json
+
 # model artifacts
 models/checkpoints/
 models/validation_metrics.json

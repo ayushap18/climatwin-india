@@ -231,9 +231,35 @@ def download_via_mdapi(config_path=MOSDAC_CONFIG) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Real download via our native MOSDAC client (preferred over the subprocess).
+# --------------------------------------------------------------------------- #
+def download_via_native(config_path=MOSDAC_CONFIG, limit: int | None = None) -> int:
+    """Fetch INSAT granules into RAW_INSAT_DIR via data/mosdac_client.py.
+
+    Speaks the MOSDAC HTTP API directly (no subprocess, no interactive prompt,
+    lockout-safe auth). Returns the number of .h5 granules present afterward.
+    Raises a MosdacError subclass (or RuntimeError) with clear guidance on failure.
+    """
+    from data.mosdac_client import MosdacClient
+
+    client = MosdacClient(config_path=config_path)
+    print(f"[insat] native MOSDAC client: dataset="
+          f"{client.cfg['search_parameters'].get('datasetId')} user={client.username!r}")
+    saved = client.download_all(dest_dir=RAW_INSAT_DIR, limit=limit)
+    try:
+        client.logout()
+    except Exception:
+        pass
+    n = len(glob.glob(str(RAW_INSAT_DIR / "*.h5")) + glob.glob(str(RAW_INSAT_DIR / "*.hdf")))
+    print(f"[insat] native client saved {len(saved)} granule(s); {n} total in {RAW_INSAT_DIR}")
+    return n
+
+
+# --------------------------------------------------------------------------- #
 # Orchestration.
 # --------------------------------------------------------------------------- #
-def build_lst(source: str = "auto", time_index: pd.DatetimeIndex | None = None) -> xr.DataArray:
+def build_lst(source: str = "auto", time_index: pd.DatetimeIndex | None = None,
+              limit: int | None = None) -> xr.DataArray:
     """Return a daily LST DataArray on the pilot grid; cache to data/insat_lst.nc."""
     cfg.ensure_dirs()
     RAW_INSAT_DIR.mkdir(parents=True, exist_ok=True)
@@ -241,9 +267,15 @@ def build_lst(source: str = "auto", time_index: pd.DatetimeIndex | None = None) 
     if source in ("auto", "real"):
         da = ingest_h5_dir()
         if da is None and source == "real":
-            # no granules yet -> try the official MOSDAC client if creds are configured
+            # no granules yet -> fetch. Prefer the native client; fall back to the
+            # official mdapi subprocess; finally tell the user to drop .h5 manually.
             if MOSDAC_CONFIG.exists():
-                download_via_mdapi()        # raises with guidance if it can't proceed
+                try:
+                    download_via_native(limit=limit)
+                except Exception as e:
+                    print(f"[insat] native MOSDAC client failed "
+                          f"({type(e).__name__}: {e}); trying official mdapi subprocess...")
+                    download_via_mdapi()    # raises with guidance if it can't proceed
                 da = ingest_h5_dir()
             if da is None:
                 raise RuntimeError(
@@ -266,8 +298,11 @@ def build_lst(source: str = "auto", time_index: pd.DatetimeIndex | None = None) 
 def main():
     p = argparse.ArgumentParser(description="Build INSAT LST layer")
     p.add_argument("--source", choices=["auto", "real", "demo"], default="auto")
+    p.add_argument("--limit", type=int, default=None,
+                   help="max granules to download (real source only; e.g. 3 for a quick live test)")
     args = p.parse_args()
-    build_lst(source="real" if args.source == "real" else ("auto" if args.source == "auto" else "demo"))
+    build_lst(source="real" if args.source == "real" else ("auto" if args.source == "auto" else "demo"),
+              limit=args.limit)
 
 
 if __name__ == "__main__":

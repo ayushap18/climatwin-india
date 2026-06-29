@@ -419,6 +419,7 @@ def meta():
         "data_source": S.data_source,
         "data_source_note": S.cube.attrs.get("data_source_note", ""),
         "lst_source": S.cube.attrs.get("lst_source"),
+        "lst_coverage": S.cube.attrs.get("lst_coverage"),  # fraction of days with REAL LST (None if synthetic)
         "has_lst": bool(getattr(S.forecasters.get("convlstm"), "has_lst", False)),
         "downscale_available": (cfg.CKPT_DIR / "downscale.pt").exists(),
         "diffusion_available": "rainfall" in _diffusion_vars(),

@@ -204,7 +204,8 @@ def compute_norm_stats(ds: xr.Dataset) -> dict:
 # --------------------------------------------------------------------------- #
 # Orchestration.
 # --------------------------------------------------------------------------- #
-def build(source: str = "auto", seed: int = 0, with_lst: bool = False) -> xr.Dataset:
+def build(source: str = "auto", seed: int = 0, with_lst: bool = False,
+          lst_source: str = "demo") -> xr.Dataset:
     cfg.ensure_dirs()
     if source == "synthetic":
         ds = make_synthetic(seed)
@@ -221,15 +222,37 @@ def build(source: str = "auto", seed: int = 0, with_lst: bool = False) -> xr.Dat
         raise ValueError(f"unknown source: {source!r}")
 
     # Optional INSAT LST fusion (indigenous satellite channel).
+    #   lst_source="demo"  -> synthetic_demo, FULL 2000-2023 coverage. This is what the
+    #                         committed ConvLSTM checkpoint was trained on; keeps the
+    #                         served model consistent with how it was trained (default).
+    #   lst_source="real"  -> real INSAT-3D granules via MOSDAC. INSAT-3D is ~2014+ and a
+    #                         fetch is usually a short window, so coverage is PARTIAL — we
+    #                         align on exact dates (no nearest-smear) and require a retrain
+    #                         before serving (CLAUDE.md golden rule). Roadmap deliverable.
+    #   lst_source="auto"  -> real .h5 if already present in data/raw/insat, else demo.
     if with_lst:
         from data.ingest_insat import build_lst
         time_index = pd.DatetimeIndex(ds["time"].values)
-        lst = build_lst(source="auto", time_index=time_index)
-        lst = lst.reindex(time=time_index, method="nearest").interp(
-            lat=ds["lat"], lon=ds["lon"], method="linear")
+        lst = build_lst(source=lst_source, time_index=time_index)
+        src = lst.attrs.get("lst_source", "unknown")
+        lst = lst.interp(lat=ds["lat"], lon=ds["lon"], method="linear")
+        if src == "insat_real":
+            # Exact-date align; uncovered days stay NaN (do NOT fabricate 24 years of LST
+            # from a few months of granules via nearest-neighbour).
+            lst = lst.reindex(time=time_index)
+            cov = float(np.isfinite(lst.values).mean())
+            ds.attrs["lst_coverage"] = round(cov, 4)
+            print(f"[build_cube] REAL INSAT LST coverage = {cov * 100:.1f}% of cube days.")
+            print("[build_cube] WARNING: the committed ConvLSTM checkpoint was trained on the "
+                  "synthetic_demo LST channel. Serving it on real LST is OUT OF DISTRIBUTION — "
+                  "retrain (make train), re-fit the ensemble, and re-validate before any skill "
+                  "claim (CLAUDE.md golden rule). Real-LST fusion is a roadmap deliverable.")
+        else:
+            # synthetic_demo (or auto->demo): full coverage, matches the trained checkpoint.
+            lst = lst.reindex(time=time_index, method="nearest")
         ds["lst"] = lst
-        ds.attrs["lst_source"] = lst.attrs.get("lst_source", "unknown")
-        print(f"[build_cube] fused INSAT LST channel (source={ds.attrs['lst_source']})")
+        ds.attrs["lst_source"] = src
+        print(f"[build_cube] fused INSAT LST channel (source={src})")
 
     ds.attrs.update(
         region=cfg.PILOT["name"],
@@ -263,8 +286,12 @@ def main():
     p.add_argument("--source", choices=["auto", "imd", "synthetic"], default="auto")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--with-lst", action="store_true", help="fuse INSAT LST channel")
+    p.add_argument("--lst-source", choices=["auto", "real", "demo"], default="demo",
+                   help="LST provenance: demo=synthetic full-coverage (matches trained model, "
+                        "default); real=INSAT-3D via MOSDAC (partial coverage, needs retrain); "
+                        "auto=real .h5 if present else demo")
     args = p.parse_args()
-    build(source=args.source, seed=args.seed, with_lst=args.with_lst)
+    build(source=args.source, seed=args.seed, with_lst=args.with_lst, lst_source=args.lst_source)
 
 
 if __name__ == "__main__":
