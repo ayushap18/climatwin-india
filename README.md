@@ -122,6 +122,29 @@ loop, an honest validation harness, an AI layer, and a dashboard.
 
 ---
 
+## 📸 Gallery
+
+The live mission-control dashboard (full set + captions → [`assets/images/`](assets/images/README.md)).
+
+| Overview | Twin · drift & re-sync | Explore · map + timeline |
+|:--:|:--:|:--:|
+| [![Overview](assets/images/01-overview-mission-control.png)](assets/images/01-overview-mission-control.png) | [![Twin](assets/images/02-twin-free-run-drift.png)](assets/images/02-twin-free-run-drift.png) | [![Explore](assets/images/03-explore-map-tmax.png)](assets/images/03-explore-map-tmax.png) |
+| **What-If · scenario diff** | **Validation · honest leaderboard** | **Downscale · rainfall SR** |
+| [![What-If](assets/images/04-whatif-scenario-diff.png)](assets/images/04-whatif-scenario-diff.png) | [![Validation](assets/images/05-validation-skill-leaderboard.png)](assets/images/05-validation-skill-leaderboard.png) | [![Downscale rainfall](assets/images/06-downscale-rainfall-srcnn.png)](assets/images/06-downscale-rainfall-srcnn.png) |
+| **Downscale · temp (honest −ve)** | **Command Console · grounded brain** | **Compare models** |
+| [![Downscale tmin](assets/images/07-downscale-tmin-diffusion.png)](assets/images/07-downscale-tmin-diffusion.png) | [![Command Console](assets/images/08-command-console-brain.png)](assets/images/08-command-console-brain.png) | [![Compare models](assets/images/11-compare-models-modal.png)](assets/images/11-compare-models-modal.png) |
+
+<details>
+<summary>More — guide assistant</summary>
+
+| In context | Panel close-up |
+|:--:|:--:|
+| [![Guide in context](assets/images/09-downscale-guide-assistant.png)](assets/images/09-downscale-guide-assistant.png) | [![Guide panel](assets/images/10-guide-assistant-panel.png)](assets/images/10-guide-assistant-panel.png) |
+
+</details>
+
+---
+
 ## 📊 Results — real IMD, temporal test split 2022–23 (baseline-relative)
 
 RMSE, **best in bold**. Ensemble is leakage-safe: fit on val 2019–20, conformal-calibrated on val 2021,
