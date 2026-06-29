@@ -6,7 +6,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Team-CodeCatalysts-1f6feb?style=for-the-badge&logo=atom&logoColor=white"/>
   <img src="https://img.shields.io/badge/Bharatiya_Antariksh-2026-ff8a3d?style=for-the-badge&logo=rocket&logoColor=white"/>
-  <img src="https://img.shields.io/badge/11_screens-9.4_MB-138808?style=for-the-badge"/>
+  <img src="https://img.shields.io/badge/16_screens-9.4_MB-138808?style=for-the-badge"/>
 </p>
 
 > Screenshot gallery of the **ClimaTwin India** dashboard (Delhi-NCR digital twin). All shots are from the
@@ -119,4 +119,56 @@ day, and see both fields plus the **diff (A − B)** map.
 
 ---
 
-<p align="center"><em>Six views, one twin, zero fabricated numbers — Team CodeCatalysts 🛰️</em></p>
+## 12 · Source switcher — synthetic vs INSAT-3D regime
+
+The top-bar **data-source switcher** popover. One underlying validated model serves two **data regimes**,
+each with its own LST provenance tag and year window: **synthetic** (IMD rainfall/temps + *synthetic* LST,
+full 2000–2023 record — the validated default) and **INSAT-3D** (IMD + **real fused INSAT-3D LST**, the
+read-only **2020-only** regime). Switching is a provenance/data-regime choice, not a second forecaster.
+
+![Source switcher — synthetic vs INSAT-3D](12-source-switcher-insat.png)
+
+---
+
+## 13 · Explore 3D — real CartoDEM terrain relief
+
+The Explore view in **3D** for the INSAT-3D regime: real **CartoDEM/Copernicus GLO-30** elevation extruded
+as a relief mesh (×1.6 exaggeration) with Tmax draped over it and baked hillshade, ConvLSTM selected.
+Orbit, zoom, and click a cell on the terrain. The 3D/2D toggle appears only in this regime.
+
+![Explore 3D — CartoDEM terrain relief](13-explore-3d-terrain-insat.png)
+
+---
+
+## 14 · Explore 3D — REAL INSAT-3D Land Surface Temperature
+
+The satellite-data headline: **real INSAT-3D Land Surface Temperature** (18.9–50.8 °C, plasma colormap)
+draped on the CartoDEM terrain. This LST is an **observation-only** layer decoded from 366 real INSAT-3D
+L2B granules (one per day of 2020, `lst_coverage` 0.6414) — it is never a forecast variable, only a fused
+observation in the read-only 2020 regime.
+
+![Explore 3D — real INSAT-3D LST](14-explore-3d-insat-lst.png)
+
+---
+
+## 15 · Explore 2D — MOSDAC OFFLINE basemap
+
+The 2D Explore view on the **MOSDAC OFFLINE** basemap for the INSAT-3D regime: satellite-grey land with
+ADM1 boundaries, a live graticule with edge ticks, a coverage locator, and corner registration ticks under
+the Delhi-NCR grid. Everything renders from bundled assets — no live MOSDAC download at demo time.
+
+![Explore 2D — MOSDAC basemap](15-explore-2d-mosdac-lst.png)
+
+---
+
+## 16 · What-If on the INSAT-3D regime
+
+The counterfactual simulator running over the INSAT-3D regime: a **SCENARIO DIFF · ΔTmax** map on the
+MOSDAC basemap (LST falls back to Tmax here, since LST is observation-only), with the same presets, ΔTemp /
+rainfall / urban sliders, and impact deltas as the synthetic regime.
+
+![What-If on INSAT-3D regime](16-whatif-insat-mosdac.png)
+
+---
+
+<p align="center"><em>Six views, two data regimes, one twin — zero fabricated numbers — Team CodeCatalysts 🛰️</em></p>
