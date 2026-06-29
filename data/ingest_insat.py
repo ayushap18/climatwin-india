@@ -58,6 +58,28 @@ def _first_key(f, candidates):
     return None
 
 
+def _decode(dset):
+    """Read an HDF5 dataset applying _FillValue (masked first) then scale_factor/add_offset.
+
+    INSAT-3D L2B geolocation is int16 with scale_factor=0.01 + _FillValue=32767; LST is
+    float32 Kelvin with _FillValue=-999. We must decode these or the regrid is garbage.
+    """
+    import numpy as _np
+
+    arr = _np.array(dset[:], dtype="float64")
+    fv = dset.attrs.get("_FillValue")
+    if fv is not None:
+        fvv = fv[0] if hasattr(fv, "__len__") else fv
+        arr = _np.where(arr == fvv, _np.nan, arr)
+    sf = dset.attrs.get("scale_factor")
+    if sf is not None:
+        arr = arr * (sf[0] if hasattr(sf, "__len__") else sf)
+    off = dset.attrs.get("add_offset")
+    if off is not None:
+        arr = arr + (off[0] if hasattr(off, "__len__") else off)
+    return arr.astype("float32")
+
+
 def _granule_datetime(path: str):
     """Parse the acquisition date from a name like 3DIMG_15JUL2023_0600_L2B_LST.h5."""
     import re
@@ -89,15 +111,15 @@ def ingest_h5_dir(h5_dir=RAW_INSAT_DIR) -> xr.DataArray | None:
                 if not (lk and lat_k and lon_k):
                     print(f"[insat] skip {path}: missing LST/geo keys")
                     continue
-                lst = np.array(f[lk][:], dtype="float32").squeeze()
-                glat = np.array(f[lat_k][:], dtype="float32").squeeze()
-                glon = np.array(f[lon_k][:], dtype="float32").squeeze()
+                lst = _decode(f[lk]).squeeze()
+                glat = _decode(f[lat_k]).squeeze()
+                glon = _decode(f[lon_k]).squeeze()
         except Exception as e:
             print(f"[insat] skip {path}: {type(e).__name__}: {e}")
             continue
 
-        lst = np.where(lst < -100, np.nan, lst)  # fill flags
-        # Kelvin -> Celsius if needed (INSAT LST is typically Kelvin).
+        lst = np.where(lst < -100, np.nan, lst)  # belt-and-braces fill guard
+        # Kelvin -> Celsius if needed (INSAT LST is Kelvin).
         if np.nanmedian(lst) > 150:
             lst = lst - 273.15
         # broadcast 1-D geolocation (L2G regular grid) to 2-D
@@ -105,7 +127,12 @@ def ingest_h5_dir(h5_dir=RAW_INSAT_DIR) -> xr.DataArray | None:
             glon2, glat2 = np.meshgrid(glon, glat)
         else:
             glat2, glon2 = glat, glon
-        m = np.isfinite(lst) & np.isfinite(glat2) & np.isfinite(glon2)
+        # CROP to the pilot bbox (+margin) BEFORE regridding — full-disk granules are
+        # ~7.9M points; cropping makes scipy.griddata fast and bounded per granule.
+        mar = 0.75
+        box = ((glat2 >= lats.min() - mar) & (glat2 <= lats.max() + mar) &
+               (glon2 >= lons.min() - mar) & (glon2 <= lons.max() + mar))
+        m = box & np.isfinite(lst) & np.isfinite(glat2) & np.isfinite(glon2)
         if m.sum() < 4:
             continue
         grid = griddata((glat2[m], glon2[m]), lst[m], (tgt_lat, tgt_lon), method="linear")
