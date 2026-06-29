@@ -152,6 +152,16 @@ export default function Explore() {
       : 0
   const pulseThreshold = heatFrac > 0 && heatFrac < 0.35 ? heatThr : undefined
 
+  // --- 3D drape selection ---
+  // In the 3D view the terrain mesh IS the real DEM relief, so the TERRAIN and UNCERTAINTY-BAND
+  // toggles are hidden (redundant / chart-only). The 0.05° HI-RES toggle stays live: when on, we
+  // hand Terrain3D the real ~5 km INDmet field (40×60) — it bilinearly samples any H×W onto the
+  // 9×13 DEM, so the surface shows a 5× finer colour drape. Independent of the 2D terrain layer.
+  const hr3D = hires && !!hr
+  const field3D = hr3D ? hr!.field : field
+  const range3D = hr3D ? (hr!.range as [number, number]) : range
+  const unit3D = hr3D ? hr!.unit : unit
+
   return (
     <div className="grid h-full grid-cols-1 gap-3 p-3 lg:grid-cols-[1fr_340px]">
       {/* ---- MAIN: map + timeline ---- */}
@@ -194,13 +204,13 @@ export default function Explore() {
 
         <div className="relative min-h-0 flex-1">
           {show3D ? (
-            field && demGrid ? (
+            field3D && demGrid ? (
               <Terrain3D
-                field={field}
+                field={field3D}
                 dem={demGrid}
                 variable={activeVariable}
-                range={range}
-                unit={unit}
+                range={range3D}
+                unit={unit3D}
                 contrast={gridContrast}
                 selected={selectedCell}
                 onCellClick={(row, col) => dispatch({ type: 'SELECT_CELL', cell: { row, col } })}
@@ -209,7 +219,7 @@ export default function Explore() {
               <SkeletonGrid rows={9} cols={13} />
             )
           ) : state && rBounds && rField && rLat && rLon ? (
-            <DarkIndiaMap bounds={rBounds}>
+            <DarkIndiaMap bounds={rBounds} basemap={is3D ? 'mosdac' : 'default'}>
               <GridLayer
                 field={rField}
                 lat={rLat}
@@ -286,14 +296,22 @@ export default function Explore() {
                 />
               </div>
             </div>
-            <UncertaintyToggle />
+            {/* uncertainty band is a forecast-chart concept — it has no meaning as a 3D drape */}
+            {!show3D && <UncertaintyToggle />}
             <HiResToggle
               on={hires}
               onChange={setHires}
               available={!!meta?.highres_available}
-              activeOk={useHr}
+              activeOk={show3D ? hr3D : useHr}
             />
-            {meta?.terrain_available && (
+            {show3D && hr3D && (
+              <div className="rounded-md border border-online/30 bg-online/5 px-2 py-1 font-mono text-[9px] leading-snug text-muted">
+                draping the real INDmet 0.05° field ({hr!.shape[0]}×{hr!.shape[1]}) over the 9×13 DEM —
+                a 5× finer surface colour, same relief.
+              </div>
+            )}
+            {/* in 3D the mesh already IS the real DEM relief, so a separate TERRAIN drape is redundant */}
+            {!show3D && meta?.terrain_available && (
               <div>
                 <button
                   onClick={() => setTerrain((t) => !t)}

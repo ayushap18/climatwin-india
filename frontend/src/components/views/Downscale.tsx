@@ -10,6 +10,7 @@ import { getDiffusion, getDownscale, getHighres } from '../../api/endpoints'
 import type { DiffusionMetrics, DiffusionResp, DownscaleResp, HighresResp, VarName } from '../../api/types'
 import { colorForScale, colorForValue } from '../../lib/colormaps'
 import { gradientEnergy, histogram, radialSpectrum } from '../../lib/fieldstats'
+import { useActiveSource } from '../../lib/sources'
 import { useThemeColors } from '../../lib/useThemeColors'
 import { useAppState } from '../../state/useAppState'
 import { COLORS } from '../../theme'
@@ -42,17 +43,26 @@ function dataRange(grid: number[][]): [number, number] {
 
 export default function Downscale() {
   const { meta, gridContrast } = useAppState()
+  const { source: src, clamp } = useActiveSource()
   const [varName, setVarName] = useState<VarName>('rainfall')
   const [dsDate, setDsDate] = useState<string>(DEMO_DATE) // editable; defaults to a wet day
   const [ds, setDs] = useState<DownscaleResp | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // clamp the curated default into the cube's real range once meta loads, so the view never
-  // opens out of range (and 404s on first paint) if the cube years are rebuilt.
+  // Keep the requested day inside the ACTIVE regime window — not just the synthetic cube range.
+  // The insat_real regime is 2020-only, so the curated 2023 wet day (valid for synthetic) is out
+  // of range there and would 404; on a regime change we snap to that regime's curated featured day
+  // (e.g. a 2020 monsoon day), falling back to clamping into [dateStart, dateEnd]. Synthetic keeps
+  // the 2023 wet day because it stays in range — synthetic behaviour is unchanged.
   useEffect(() => {
-    if (!meta?.dates) return
-    if (dsDate < meta.dates.start || dsDate > meta.dates.end) setDsDate(meta.dates.end)
-  }, [meta]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!src) return
+    if (dsDate < src.dateStart || dsDate > src.dateEnd) {
+      const f = src.featured
+      setDsDate(f >= src.dateStart && f <= src.dateEnd ? f : (clamp(dsDate) as string))
+    }
+    // re-clamp only on regime change (src.key), not on every date keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src?.key])
 
   useEffect(() => {
     let on = true
@@ -64,7 +74,8 @@ export default function Downscale() {
     return () => {
       on = false
     }
-  }, [varName, dsDate])
+    // src?.key so a regime switch refetches even when the date is valid in both regimes.
+  }, [varName, dsDate, src?.key])
 
   // real 0.05° INDmet field for the same day (genuine high-res, rainfall only)
   const [hr, setHr] = useState<HighresResp | null>(null)
@@ -121,8 +132,8 @@ export default function Downscale() {
             <input
               type="date"
               value={dsDate}
-              min={meta?.dates.start}
-              max={meta?.dates.end}
+              min={src?.dateStart ?? meta?.dates.start}
+              max={src?.dateEnd ?? meta?.dates.end}
               onChange={(e) => e.target.value && setDsDate(e.target.value)}
               className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-mono text-[10px] text-ink [color-scheme:dark]"
             />
@@ -159,7 +170,7 @@ export default function Downscale() {
             </>
           ) : error ? (
             <div className="m-auto">
-              <UnavailableExplainer error={error} />
+              <UnavailableExplainer error={error} available={meta?.downscale_available !== false} />
             </div>
           ) : (
             <div className="m-auto font-mono text-xs text-muted">loading…</div>
@@ -298,7 +309,7 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   )
 }
 
-function UnavailableExplainer({ error }: { error: string }) {
+function UnavailableExplainer({ error, available }: { error: string; available: boolean }) {
   return (
     <div className="max-w-lg text-center">
       <div className="mb-4 flex items-center justify-center gap-2">
@@ -308,12 +319,28 @@ function UnavailableExplainer({ error }: { error: string }) {
         <span className="text-muted/50">vs</span>
         <PlaceholderTile label="SR-CNN" accent />
       </div>
-      <div className="font-mono text-xs text-danger">downscaler unavailable in this deployment</div>
-      <div className="mt-2 font-mono text-[11px] leading-relaxed text-muted">{error}</div>
-      <div className="mt-3 font-mono text-[11px] text-muted/80">
-        Train the SR-CNN with <span className="text-ink">make downscale</span> and this view lights
-        up: drag-to-compare the two reconstructions with the live % improvement.
-      </div>
+      {available ? (
+        // The downscaler IS trained — this is a transient fetch / out-of-range day, not a missing
+        // model. The date is clamped to the active regime, so this should be rare; surface the
+        // real error and tell the user to pick an in-window day rather than implying no SR-CNN.
+        <>
+          <div className="font-mono text-xs text-danger">no downscale for this day</div>
+          <div className="mt-2 font-mono text-[11px] leading-relaxed text-muted">{error}</div>
+          <div className="mt-3 font-mono text-[11px] text-muted/80">
+            Pick a date inside the active data regime’s window — the SR-CNN reconstruction lights up
+            for every covered day.
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="font-mono text-xs text-danger">downscaler unavailable in this deployment</div>
+          <div className="mt-2 font-mono text-[11px] leading-relaxed text-muted">{error}</div>
+          <div className="mt-3 font-mono text-[11px] text-muted/80">
+            Train the SR-CNN with <span className="text-ink">make downscale</span> and this view lights
+            up: drag-to-compare the two reconstructions with the live % improvement.
+          </div>
+        </>
+      )}
     </div>
   )
 }

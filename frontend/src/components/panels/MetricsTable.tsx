@@ -48,13 +48,13 @@ export default function MetricsTable({ v, horizon }: { v: ValidateResp; horizon:
                         className="text-right tabular-nums"
                         style={{ color: isBest ? COLORS.online : COLORS.ink }}
                       >
-                        {cell ? cell.RMSE.toFixed(2) : '—'}
+                        {cell?.RMSE != null ? cell.RMSE.toFixed(2) : '—'}
                       </td>
                       <td className="text-right tabular-nums text-muted">
-                        {cell ? cell.MAE.toFixed(2) : '—'}
+                        {cell?.MAE != null ? cell.MAE.toFixed(2) : '—'}
                       </td>
                       <td className="text-right tabular-nums text-muted">
-                        {cell ? cell.corr.toFixed(2) : '—'}
+                        {cell?.corr != null ? cell.corr.toFixed(2) : '—'}
                       </td>
                     </tr>
                   )
@@ -89,9 +89,9 @@ export default function MetricsTable({ v, horizon }: { v: ValidateResp; horizon:
               return (
                 <tr key={m} className="font-mono text-[11px] text-ink">
                   <td className="text-left">{m}</td>
-                  <td className="text-right tabular-nums">{cat ? cat.POD.toFixed(2) : '—'}</td>
-                  <td className="text-right tabular-nums">{cat ? cat.FAR.toFixed(2) : '—'}</td>
-                  <td className="text-right tabular-nums">{cat ? cat.CSI.toFixed(2) : '—'}</td>
+                  <td className="text-right tabular-nums">{cat?.POD != null ? cat.POD.toFixed(2) : '—'}</td>
+                  <td className="text-right tabular-nums">{cat?.FAR != null ? cat.FAR.toFixed(2) : '—'}</td>
+                  <td className="text-right tabular-nums">{cat?.CSI != null ? cat.CSI.toFixed(2) : '—'}</td>
                 </tr>
               )
             })}

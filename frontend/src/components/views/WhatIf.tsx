@@ -27,17 +27,25 @@ function maxAbs(grid: number[][]): number {
 
 export default function WhatIf() {
   const { meta, state, model, activeVariable, horizon, gridContrast } = useAppState()
-  const { source: src } = useActiveSource()
+  const { source: src, clamp } = useActiveSource()
 
-  const defaultDate = useMemo(
-    () => (meta ? `${meta.latest_date.slice(0, 4)}-05-22` : ''),
-    [meta],
-  )
+  // First-paint anchor: the synthetic regime opens on an illustrative monsoon day; any
+  // other regime (e.g. insat_real, 2020-only) opens on its curated featured day so the
+  // date is never out of the active window. Always clamp into the regime bounds.
+  const defaultDate = useMemo(() => {
+    if (!meta || !src) return ''
+    const base = src.key === 'synthetic' ? `${meta.latest_date.slice(0, 4)}-05-22` : src.featured
+    return clamp(base) ?? base
+  }, [meta, src, clamp])
   const [date, setDate] = useState('')
+  // Snap into the active window whenever the regime changes…
   useSnapDateToSource(date, setDate)
+  // …and seed the initial date (or re-seed if a regime change left it out of range).
   useEffect(() => {
-    if (!date && defaultDate) setDate(defaultDate)
-  }, [defaultDate, date])
+    if (!defaultDate) return
+    const inWindow = src && date >= src.dateStart && date <= src.dateEnd
+    if (!date || !inWindow) setDate(defaultDate)
+  }, [defaultDate, date, src])
 
   // open on a mild illustrative scenario so the diff map isn't blank on first paint
   const [deltaTemp, setDeltaTemp] = useState(2)
@@ -53,9 +61,13 @@ export default function WhatIf() {
     setLeadDay((l) => Math.min(Math.max(1, l), horizon))
   }, [horizon])
 
-  // debounced auto-run
+  // debounced auto-run — re-fires on any control change AND on a regime switch
+  // (src.key): the cache is cleared cross-regime, so the scenario must be re-requested
+  // under the new source even when the date/sliders are unchanged. Skip dates that fall
+  // outside the active window (a transient during a regime change) to avoid a doomed call.
   useEffect(() => {
     if (!date) return
+    if (src && (date < src.dateStart || date > src.dateEnd)) return
     const t = window.setTimeout(() => {
       setRunning(true)
       postWhatIf({
@@ -72,7 +84,7 @@ export default function WhatIf() {
         .finally(() => setRunning(false))
     }, 350)
     return () => window.clearTimeout(t)
-  }, [date, horizon, deltaTemp, rainPct, urbanLst, urbanPoints, model])
+  }, [date, horizon, deltaTemp, rainPct, urbanLst, urbanPoints, model, src?.key, src?.dateStart, src?.dateEnd])
 
   const res = meta?.res_deg ?? 0.25
   // a read-only regime (no trained model) returns { pending } with no days/grid
@@ -96,7 +108,15 @@ export default function WhatIf() {
             SCENARIO DIFF · Δ{activeVariable.toUpperCase()}
           </div>
           <div className="font-mono text-[10px] text-muted">
-            {day ? `${prettyDate(day.date)} · +${day.lead_day}d` : 'syncing…'}
+            {day
+              ? `${prettyDate(day.date)} · +${day.lead_day}d`
+              : isPending
+                ? 'read-only regime'
+                : running
+                  ? 'syncing…'
+                  : date
+                    ? 'loading…'
+                    : 'select a date'}
           </div>
         </div>
 

@@ -69,7 +69,7 @@ const WALK: StageDef[] = [
 
 export default function Twin() {
   const { meta, activeVariable, gridContrast } = useAppState()
-  const { source: src } = useActiveSource()
+  const { source: src, clamp } = useActiveSource()
   const dispatch = useAppDispatch()
   const c = useThemeColors()
   const [stage, setStage] = useState<TwinStage | null>(null)
@@ -102,12 +102,18 @@ export default function Twin() {
   )
   const run = live && stream.run ? stream.run : restRun
 
-  // initialize model + anchor once meta is ready, and re-pick the model whenever the regime
-  // changes (the current pick may not exist in the new regime's forecaster set).
+  // initialize model + anchor once meta is ready, and re-pick both whenever the regime
+  // changes (the current pick may not exist in the new regime's forecaster set, and the
+  // anchor MUST sit inside the active regime's window). The twin free-runs forward from
+  // the anchor, so meta.latest_date — the SYNTHETIC featured day (2001-05-16) — 404s
+  // /twin/run for a regime like insat_real (2020 only). Derive the anchor from the active
+  // regime's curated featured day, set back by the horizon to leave room to drift, and
+  // clamp it into [dateStart, dateEnd] so switching to insat_real lands the anchor in 2020.
   useEffect(() => {
-    if (!meta) return
+    if (!meta || !src) return
     if (!model || !models.includes(model)) setModel(preferredModel)
-    if (!anchor) setAnchor(addDaysISO(meta.latest_date, -horizon))
+    const base = src.featured || src.dateEnd
+    setAnchor(clamp(addDaysISO(base, -horizon)) ?? base)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta, src?.key])
 
@@ -142,6 +148,8 @@ export default function Twin() {
     else if (s === 'PERTURB') dispatch({ type: 'SET_VIEW', view: 'whatif' })
   }
 
+  // a read-only regime (no trained twin model yet) returns {pending} instead of days
+  const pending = !!run?.pending
   const day = run?.days[Math.min(lead, run.days.length) - 1] ?? null
   const range = (sourceMeta?.colorbar_ranges?.[activeVariable] ??
     meta?.colorbar_ranges?.[activeVariable] ??
@@ -266,6 +274,11 @@ export default function Twin() {
                 sub={`Δ${activeVariable} · max ${drift.max.toFixed(1)}${unit}`}
                 width={184}
               />
+            </div>
+          ) : pending ? (
+            <div className="max-w-md text-center font-mono text-[11px] leading-relaxed text-muted">
+              {run?.reason ||
+                'This data regime is read-only — no trained twin model yet. The validated twin runs in the synthetic regime.'}
             </div>
           ) : (
             <div className="font-mono text-xs text-muted">{loading ? 'running twin…' : 'no data'}</div>
