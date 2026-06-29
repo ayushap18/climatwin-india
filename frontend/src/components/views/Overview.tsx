@@ -14,6 +14,7 @@ import { getState } from '../../api/endpoints'
 import type { StateResp } from '../../api/types'
 import { COLORS } from '../../theme'
 import { useAppDispatch, useAppState, type ViewId } from '../../state/useAppState'
+import { useActiveSource, useSnapDateToSource } from '../../lib/sources'
 
 const STAGES: { id: TwinStage; desc: string }[] = [
   { id: 'MIRROR', desc: 'state ← observed cube' },
@@ -85,9 +86,11 @@ const FEATURES: Feature[] = [
 
 export default function Overview() {
   const { state, meta } = useAppState()
+  const { source: src } = useActiveSource()
   const dispatch = useAppDispatch()
   // editable date: pick any day to inspect its live-state telemetry (defaults to latest)
   const [ovDate, setOvDate] = useState<string | undefined>(undefined)
+  useSnapDateToSource(ovDate, setOvDate)
   const [picked, setPicked] = useState<StateResp | null>(null)
   useEffect(() => {
     if (!ovDate) { setPicked(null); return }
@@ -118,8 +121,8 @@ export default function Overview() {
               <input
                 type="date"
                 value={ovDate ?? meta?.latest_date ?? ''}
-                min={meta?.dates.start}
-                max={meta?.dates.end}
+                min={src?.dateStart ?? meta?.dates.start}
+                max={src?.dateEnd ?? meta?.dates.end}
                 onChange={(e) => setOvDate(e.target.value || undefined)}
                 className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-mono text-[10px] text-ink [color-scheme:dark]"
               />

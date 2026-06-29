@@ -19,6 +19,7 @@ import { prettyDate } from '../../lib/format'
 import { COLORS } from '../../theme'
 import { useThemeColors } from '../../lib/useThemeColors'
 import { useAppDispatch, useAppState } from '../../state/useAppState'
+import { useActiveSource, useSnapDateToSource } from '../../lib/sources'
 import {
   CartesianGrid,
   Line,
@@ -68,6 +69,7 @@ const WALK: StageDef[] = [
 
 export default function Twin() {
   const { meta, activeVariable, gridContrast } = useAppState()
+  const { source: src } = useActiveSource()
   const dispatch = useAppDispatch()
   const c = useThemeColors()
   const [stage, setStage] = useState<TwinStage | null>(null)
@@ -83,6 +85,7 @@ export default function Twin() {
   const [assimilate, setAssimilate] = useState(false)
   const [horizon, setHorizon] = useState(7)
   const [anchor, setAnchor] = useState('')
+  useSnapDateToSource(anchor, setAnchor)
   const [lead, setLead] = useState(1)
   const [restRun, setRestRun] = useState<TwinRunResp | null>(null)
   const [loading, setLoading] = useState(false)
@@ -315,8 +318,8 @@ export default function Twin() {
               <input
                 type="date"
                 value={anchor}
-                min={meta?.dates.start}
-                max={meta?.dates.end}
+                min={src?.dateStart ?? meta?.dates.start}
+                max={src?.dateEnd ?? meta?.dates.end}
                 onChange={(e) => setAnchor(e.target.value)}
                 className="rounded border border-line bg-panel-2 px-2 py-1 font-mono text-[11px] text-ink [color-scheme:dark]"
               />

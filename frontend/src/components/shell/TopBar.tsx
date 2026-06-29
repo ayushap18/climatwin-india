@@ -8,6 +8,7 @@ import { exportNodePng } from '../../lib/exportPng'
 import { useAppState } from '../../state/useAppState'
 import TwinCore from '../twin/TwinCore'
 import SettingsPopover from './SettingsPopover'
+import SourceSelect from '../controls/SourceSelect'
 
 export default function TopBar() {
   const { meta, health, model } = useAppState()
@@ -23,8 +24,6 @@ export default function TopBar() {
   }, [])
 
   const online = health?.status === 'ok'
-  const source = (health?.data_source ?? meta?.data_source ?? '—').toUpperCase()
-  const lst = meta?.lst_source ? meta.lst_source.toUpperCase() : null
 
   return (
     <header className="relative z-20 flex items-stretch justify-between border-b border-line bg-panel/80 backdrop-blur-md">
@@ -54,10 +53,7 @@ export default function TopBar() {
             </span>
           </span>
         </Stat>
-        <Stat label="SOURCE">
-          <span className="text-ink">{source}</span>
-          {lst && <span className="text-muted"> · LST {lst}</span>}
-        </Stat>
+        <SourceSelect />
         <Stat label="MODEL">
           <span className="text-saffron">{(model ?? '—').toUpperCase()}</span>
         </Stat>

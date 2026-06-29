@@ -26,6 +26,7 @@ import { colorForScale } from '../../lib/colormaps'
 import type { HighresResp, TerrainResp } from '../../api/types'
 import { useTimeline } from '../../state/useTimeline'
 import { useAppDispatch, useAppState } from '../../state/useAppState'
+import { useActiveSource, useSnapDateToSource } from '../../lib/sources'
 import { useEffect, useState } from 'react'
 
 function mean2d(f: number[][]): number {
@@ -49,8 +50,10 @@ function nearestIdx(axis: number[], v: number): number {
 
 export default function Explore() {
   const { state, meta, model, forecast, activeVariable, selectedCell, horizon, gridContrast } = useAppState()
+  const { source: src } = useActiveSource()
   const [compare, setCompare] = useState(false)
   const [anchorDate, setAnchorDate] = useState<string | undefined>(undefined) // undefined → latest
+  useSnapDateToSource(anchorDate, setAnchorDate)
   const dispatch = useAppDispatch()
   const tl = useTimeline(anchorDate)
 
@@ -150,8 +153,8 @@ export default function Explore() {
             <input
               type="date"
               value={anchorDate ?? meta?.latest_date ?? ''}
-              min={meta?.dates.start}
-              max={meta?.dates.end}
+              min={src?.dateStart ?? meta?.dates.start}
+              max={src?.dateEnd ?? meta?.dates.end}
               onChange={(e) => setAnchorDate(e.target.value || undefined)}
               className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-mono text-[10px] text-ink [color-scheme:dark]"
             />

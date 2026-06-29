@@ -17,6 +17,7 @@ import { gridBounds } from '../../lib/grid'
 import { COLORMAPS } from '../../theme'
 import { prettyDate } from '../../lib/format'
 import { useAppState } from '../../state/useAppState'
+import { useActiveSource, useSnapDateToSource } from '../../lib/sources'
 
 function maxAbs(grid: number[][]): number {
   let m = 0
@@ -26,12 +27,14 @@ function maxAbs(grid: number[][]): number {
 
 export default function WhatIf() {
   const { meta, state, model, activeVariable, horizon, gridContrast } = useAppState()
+  const { source: src } = useActiveSource()
 
   const defaultDate = useMemo(
     () => (meta ? `${meta.latest_date.slice(0, 4)}-05-22` : ''),
     [meta],
   )
   const [date, setDate] = useState('')
+  useSnapDateToSource(date, setDate)
   useEffect(() => {
     if (!date && defaultDate) setDate(defaultDate)
   }, [defaultDate, date])
@@ -139,8 +142,8 @@ export default function WhatIf() {
             <LayerSwitch />
             <WhatIfPanel
               date={date}
-              dateMin={meta?.dates.start ?? ''}
-              dateMax={meta?.dates.end ?? ''}
+              dateMin={src?.dateStart ?? meta?.dates.start ?? ''}
+              dateMax={src?.dateEnd ?? meta?.dates.end ?? ''}
               onDate={setDate}
               deltaTemp={deltaTemp}
               onDeltaTemp={setDeltaTemp}

@@ -28,12 +28,14 @@ export interface Meta {
   colorbar_ranges: Record<VarName, [number, number]>
   dates: { start: string; end: string; count: number }
   latest_date: string
+  true_latest_date: string
   split: Record<string, [number, number]>
   models: string[]
   default_model: string
   data_source: string
   data_source_note: string
   lst_source: string | null
+  lst_coverage: number | null // fraction of days with REAL INSAT LST (null when synthetic)
   has_lst: boolean
   downscale_available: boolean
   diffusion_available: boolean

@@ -26,6 +26,7 @@ export interface AppState {
   activeView: ViewId
   activeVariable: VarName
   model: string | null
+  source: string | null // selected data-source regime key (see lib/sources.ts)
   initDate: string | null
   horizon: number
   timelineIndex: number
@@ -47,6 +48,7 @@ const initialState: AppState = {
   activeView: 'overview',
   activeVariable: 'tmax',
   model: null,
+  source: null,
   initDate: null,
   horizon: 7,
   timelineIndex: 0,
@@ -66,6 +68,7 @@ type Action =
   | { type: 'SET_VIEW'; view: ViewId }
   | { type: 'SET_VARIABLE'; variable: VarName }
   | { type: 'SET_MODEL'; model: string }
+  | { type: 'SET_SOURCE'; source: string }
   | { type: 'SET_HORIZON'; horizon: number }
   | { type: 'SET_TIMELINE'; index: number }
   | { type: 'SET_PLAYING'; playing: boolean }
@@ -84,6 +87,7 @@ function reducer(state: AppState, action: Action): AppState {
         health: action.health,
         meta: action.meta,
         model: state.model ?? action.meta.default_model,
+        source: state.source ?? (action.meta.lst_source === 'insat_real' ? 'insat_real' : 'synthetic'),
         initDate: state.initDate ?? action.meta.latest_date,
         horizon: Math.min(state.horizon, action.meta.max_horizon),
       }
@@ -99,6 +103,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, activeVariable: action.variable }
     case 'SET_MODEL':
       return { ...state, model: action.model }
+    case 'SET_SOURCE':
+      return { ...state, source: action.source }
     case 'SET_HORIZON':
       return { ...state, horizon: action.horizon }
     case 'SET_TIMELINE':

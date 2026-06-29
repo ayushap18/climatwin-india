@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getForecast, getState } from '../api/endpoints'
 import type { Fields, Impacts, StateResp } from '../api/types'
 import { useAppDispatch, useAppState } from './useAppState'
+import { useActiveSource } from '../lib/sources'
 
 const PAST_DAYS = 7
 const PLAY_MS = 750
@@ -32,8 +33,11 @@ function addDaysISO(iso: string, n: number): string {
 
 export function useTimeline(anchor?: string) {
   const { meta, state, forecast, horizon, model, uncertainty } = useAppState()
+  const { source: src } = useActiveSource()
   const dispatch = useAppDispatch()
   const init = anchor ?? meta?.latest_date ?? null
+  // The earliest scrubable day respects the active source regime (e.g. INSAT era).
+  const floor = src?.dateStart ?? meta?.dates.start
 
   const [observed, setObserved] = useState<Record<string, StateResp>>({})
 
@@ -55,7 +59,7 @@ export function useTimeline(anchor?: string) {
   useEffect(() => {
     if (!init || !meta) return
     let on = true
-    const start = meta.dates.start
+    const start = floor ?? meta.dates.start
     const dates: string[] = []
     for (let k = PAST_DAYS; k >= 0; k--) {
       // include k=0 (the anchor itself) so the NOW frame has data for any chosen date
@@ -73,7 +77,7 @@ export function useTimeline(anchor?: string) {
     return () => {
       on = false
     }
-  }, [init, meta])
+  }, [init, meta, floor])
 
   const dataByDate = useMemo(() => {
     const m = new Map<string, FrameData>()
@@ -88,7 +92,7 @@ export function useTimeline(anchor?: string) {
   const frames = useMemo<Frame[]>(() => {
     if (!init) return []
     const fr: Frame[] = []
-    const start = meta?.dates.start ?? init
+    const start = floor ?? meta?.dates.start ?? init
     for (let k = PAST_DAYS; k >= 1; k--) {
       const d = addDaysISO(init, -k)
       if (d >= start) fr.push({ key: d, date: d, kind: 'observed', leadDay: -k, label: `−${k}d` })
@@ -98,7 +102,7 @@ export function useTimeline(anchor?: string) {
       for (const day of forecast.days)
         fr.push({ key: day.date, date: day.date, kind: 'forecast', leadDay: day.lead_day, label: `+${day.lead_day}d` })
     return fr
-  }, [init, meta, forecast])
+  }, [init, meta, forecast, floor])
 
   const nowIndex = useMemo(() => frames.findIndex((f) => f.kind === 'now'), [frames])
   const framesLen = frames.length
