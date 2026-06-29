@@ -4,6 +4,7 @@
 // provenance. Same main + right-column layout as Overview.
 
 import DarkIndiaMap from '../map/DarkIndiaMap'
+import Terrain3D from '../map3d/Terrain3D'
 import GridLayer from '../map/GridLayer'
 import RegionLocator from '../map/RegionLocator'
 import RainOverlay from '../map/RainOverlay'
@@ -101,6 +102,18 @@ export default function Explore() {
   }, [terrain, meta?.terrain_available])
   const useTerrain = terrain && !!terr
 
+  // INSAT-3D regime gets the 3D terrain-relief map (distinct from synthetic's flat map).
+  const is3D = src?.key === 'insat_real'
+  const [demGrid, setDemGrid] = useState<number[][] | null>(null)
+  useEffect(() => {
+    if (!is3D || demGrid || !meta?.terrain_available) return
+    let on = true
+    getTerrain().then((t) => on && setDemGrid(t.field)).catch(() => {})
+    return () => {
+      on = false
+    }
+  }, [is3D, demGrid, meta?.terrain_available])
+
   // resolved render layer (TERRAIN > hi-res > the 0.25° variable grid)
   const useHr = hires && !!hr && !useTerrain
   const rField = useTerrain ? terr!.field : useHr ? hr!.field : field
@@ -171,7 +184,22 @@ export default function Explore() {
         </div>
 
         <div className="relative min-h-0 flex-1">
-          {state && rBounds && rField && rLat && rLon ? (
+          {is3D ? (
+            field && demGrid ? (
+              <Terrain3D
+                field={field}
+                dem={demGrid}
+                variable={activeVariable}
+                range={range}
+                unit={unit}
+                contrast={gridContrast}
+                selected={selectedCell}
+                onCellClick={(row, col) => dispatch({ type: 'SELECT_CELL', cell: { row, col } })}
+              />
+            ) : (
+              <SkeletonGrid rows={9} cols={13} />
+            )
+          ) : state && rBounds && rField && rLat && rLon ? (
             <DarkIndiaMap bounds={rBounds}>
               <GridLayer
                 field={rField}
@@ -208,8 +236,8 @@ export default function Explore() {
           ) : (
             <SkeletonGrid rows={9} cols={13} />
           )}
-          <RainOverlay intensity={rainIntensity} />
-          <RegionLocator />
+          {!is3D && <RainOverlay intensity={rainIntensity} />}
+          {!is3D && <RegionLocator />}
         </div>
 
         <TimeSlider
