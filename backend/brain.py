@@ -543,7 +543,8 @@ def _narrate(answer: str, caveat: str, facts: dict) -> str:
 # --------------------------------------------------------------------------- #
 # anomaly_scan — the autonomous trigger
 # --------------------------------------------------------------------------- #
-def anomaly_scan(cube, window: Optional[Tuple[int, int]] = None) -> dict:
+def anomaly_scan(cube, window: Optional[Tuple[int, int]] = None,
+                 split_dates: Optional[dict] = None) -> dict:
     """Deterministically flag a recent heat or dryness anomaly using TRAIN-YEARS-ONLY
     thresholds, and suggest an investigation question for the brain.
 
@@ -552,15 +553,38 @@ def anomaly_scan(cube, window: Optional[Tuple[int, int]] = None) -> dict:
     the test-window day whose grid-peak Tmax most exceeds the train 98th-pct of daily
     peak Tmax. Dryness = a 30-day test accumulation below the train 5th-pct. The strongest
     exceedance wins; ties break toward heat.
+
+    Regime-aware: a focused regime (e.g. the 2020-only insat_real cube) carries a
+    DATE-based split in its norm_stats ``_split_dates`` ({"train":[s,e],"test":[s,e]}).
+    Pass it as ``split_dates`` so both the train threshold and the recent (test) scan
+    window land on real timesteps — the project's year-based ``cfg.SPLIT`` would select
+    zero timesteps on a single-year cube and crash. With neither arg, falls back to
+    ``cfg.SPLIT`` (the synthetic 2000–2023 regime).
     """
     import numpy as np
     import pandas as pd
     import config as cfg
 
-    ty0, ty1 = cfg.SPLIT["train"]
-    wy0, wy1 = window or cfg.SPLIT.get("test", (ty1 + 1, int(str(cube["time"].values[-1])[:4])))
-    train = cube.sel(time=slice(f"{ty0}-01-01", f"{ty1}-12-31"))
-    rec = cube.sel(time=slice(f"{wy0}-01-01", f"{wy1}-12-31"))
+    if split_dates and split_dates.get("train"):
+        tr0, tr1 = split_dates["train"]
+        rec_win = split_dates.get("test") or split_dates.get("val") or [tr0, tr1]
+        rc0, rc1 = rec_win
+        train = cube.sel(time=slice(tr0, tr1))
+        rec = cube.sel(time=slice(rc0, rc1))
+        baseline_period = f"train window {str(tr0)[:10]}..{str(tr1)[:10]}"
+    else:
+        ty0, ty1 = cfg.SPLIT["train"]
+        wy0, wy1 = window or cfg.SPLIT.get("test", (ty1 + 1, int(str(cube["time"].values[-1])[:4])))
+        train = cube.sel(time=slice(f"{ty0}-01-01", f"{ty1}-12-31"))
+        rec = cube.sel(time=slice(f"{wy0}-01-01", f"{wy1}-12-31"))
+        baseline_period = f"train years {ty0}–{ty1}"
+    if rec["time"].size == 0 or train["time"].size == 0:
+        last = str(pd.Timestamp(cube["time"].values[-1]).date())
+        return {
+            "anomaly": False, "kind": None, "date": last,
+            "message": "Insufficient train/test timesteps to scan for anomalies in this regime.",
+            "suggested_question": None,
+        }
     last_date = str(pd.Timestamp(rec["time"].values[-1]).date())
 
     # --- heat: train-years distribution of daily grid-PEAK tmax -------------------
@@ -593,7 +617,7 @@ def anomaly_scan(cube, window: Optional[Tuple[int, int]] = None) -> dict:
         return {
             "anomaly": True, "kind": "heat", "date": hot_date,
             "value": hot_val, "threshold": heat_thr,
-            "baseline": f"train years {ty0}–{ty1}, 98th-pct of daily peak Tmax",
+            "baseline": f"{baseline_period}, 98th-pct of daily peak Tmax",
             "message": (f"Heat anomaly on {hot_date}: peak Tmax {hot_val}°C exceeds the "
                         f"train-climatology 98th-pct of {heat_thr}°C."),
             "suggested_question": f"investigate the heat anomaly on {hot_date}",
@@ -602,7 +626,7 @@ def anomaly_scan(cube, window: Optional[Tuple[int, int]] = None) -> dict:
         return {
             "anomaly": True, "kind": "dryness", "date": dry_date,
             "value": dry_val, "threshold": dry_thr,
-            "baseline": f"train years {ty0}–{ty1}, 5th-pct of {win}-day rainfall accumulation",
+            "baseline": f"{baseline_period}, 5th-pct of {win}-day rainfall accumulation",
             "message": (f"Dryness anomaly on {dry_date}: {win}-day rainfall {dry_val} mm is "
                         f"below the train-climatology 5th-pct of {dry_thr} mm."),
             "suggested_question": f"investigate the dryness anomaly on {dry_date}",

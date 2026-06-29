@@ -1076,15 +1076,6 @@ def downscale_diffusion(
 # --------------------------------------------------------------------------- #
 # AI assistant — tools over the existing builders + grounded/LLM engine.
 # --------------------------------------------------------------------------- #
-def _twin_demo_model() -> str:
-    """A state-dependent model so the twin's assimilation story is visible."""
-    if "convlstm" in S.forecasters:
-        return "convlstm"
-    if "persistence" in S.forecasters:
-        return "persistence"
-    return S.default_model
-
-
 @lru_cache(maxsize=1)
 def _terrain_payload() -> dict:
     """The static real-elevation (DEM) field over the pilot grid — the map's TERRAIN layer.
@@ -1134,23 +1125,31 @@ def _maybe_enable_ollama() -> None:
         print(f"[backend] ollama: not reachable ({type(e).__name__}) — deterministic narration")
 
 
-def _ai_tools() -> dict:
+def _ai_tools(source: str = "synthetic") -> dict:
+    """Tool bundle for the AI layer, bound to a specific regime (default = synthetic).
+
+    Every tool resolves data through `_regime(source)` and the already source-aware
+    payload builders, so in the insat_real regime the brain/guide answer from the
+    REAL 2020 cube/model instead of the synthetic featured day.
+    """
+    reg = _regime(source)
+
     def t_state(date):
-        p = _state_payload(_validate_date(date))
+        p = _state_payload(_validate_date(date, source), source)
         i = p["impacts"]
         return {"date": p["date"], "max_tmax": i["max_tmax_c"], "mean_rain": i["mean_rainfall_mm"],
                 "heat_pct": round(i["heat_stress_fraction"] * 100), "dryness": i["dryness_index"]}
 
     def t_forecast(date, horizon):
-        p = _forecast_payload(_validate_date(date), horizon, S.default_model)
+        p = _forecast_payload(_validate_date(date, source), horizon, reg.default_model, source)
         return {"init": p["init_date"], "model": p["model"], "horizon": p["horizon"],
                 "mean_rain": [d["impacts"]["mean_rainfall_mm"] for d in p["days"]],
                 "max_tmax": [d["impacts"]["max_tmax_c"] for d in p["days"]],
                 "sowing": p["sowing_window"]}
 
     def t_whatif(date, dt, rf):
-        d = _validate_date(date)
-        tw = _build_twin(S.default_model)
+        d = _validate_date(date, source)
+        tw = _build_twin(reg.default_model, source)
         tw.initialize(d)
         res = tw.whatif(delta_temp=dt, rain_factor=rf, horizon=cfg.H_HORIZON)
         last = tw.current_date + pd.Timedelta(days=cfg.H_HORIZON)
@@ -1163,22 +1162,34 @@ def _ai_tools() -> dict:
                 "scen_sowing": tw.sowing_window(res["scenario"])["onset_lead_day"]}
 
     def t_validate():
-        if not cfg.METRICS_PATH.exists():
-            return {"error": "validation_metrics.json not found"}
-        v = json.loads(cfg.METRICS_PATH.read_text())
+        # each regime has its own leaderboard: synthetic -> models/validation_metrics.json,
+        # insat_real -> data/validation_metrics_2020.json (REAL INSAT-3D 2020 regime).
+        metrics_path = (cfg.DATA_DIR / "validation_metrics_2020.json"
+                        if source == "insat_real" else cfg.METRICS_PATH)
+        if not metrics_path.exists():
+            return {"error": f"no validation metrics available for source {source!r} "
+                             f"({metrics_path.name} not found)"}
+        v = json.loads(metrics_path.read_text())
         h = list(v["summary_rmse"])[0]
         best = {var: v["summary_rmse"][h][var]["best"] for var in cfg.VARS}
-        cat = v["horizons"][h][best["rainfall"]]["rainfall"].get("categorical", {})
+        cat = (v.get("horizons", {}).get(h, {}).get(best["rainfall"], {})
+               .get("rainfall", {}).get("categorical", {}))
         return {"horizon": h, "best": best, "pod": cat.get("POD"), "csi": cat.get("CSI")}
 
     def t_twin(date, horizon):
-        m = _twin_demo_model()
+        # a state-dependent model so assimilation is visible, chosen from THIS regime
+        if "convlstm" in reg.forecasters:
+            m = "convlstm"
+        elif "persistence" in reg.forecasters:
+            m = "persistence"
+        else:
+            m = reg.default_model
         # anchor far enough back that real observations exist across the lead window
-        anchor = pd.Timestamp(_validate_date(date))
-        max_anchor = pd.Timestamp(S.dates[-1]) - pd.Timedelta(days=horizon)
+        anchor = pd.Timestamp(_validate_date(date, source))
+        max_anchor = pd.Timestamp(reg.dates[-1]) - pd.Timedelta(days=horizon)
         d = str(min(anchor, max_anchor).date())
-        free = _twin_run_payload(d, horizon, False, m)
-        assim = _twin_run_payload(d, horizon, True, m)
+        free = _twin_run_payload(d, horizon, False, m, source)
+        assim = _twin_run_payload(d, horizon, True, m, source)
         return {"anchor": free["anchor_date"], "model": m,
                 "free_sync": [x["sync_pct"] for x in free["days"]],
                 "assim_sync": [x["sync_pct"] for x in assim["days"]],
@@ -1188,34 +1199,41 @@ def _ai_tools() -> dict:
             "validate": t_validate, "twin": t_twin}
 
 
-def _ai_ctx() -> dict:
-    """The shared tool/context bundle handed to both the /ai engine and the /brain."""
+def _ai_ctx(source: str = "synthetic") -> dict:
+    """The shared tool/context bundle handed to both the /ai engine and the /brain.
+
+    Source-aware: in the insat_real regime it advertises the 2020 dates/featured day,
+    that regime's models, and its own grid — so grounded answers cite the right regime.
+    """
+    reg = _regime(source)
     return {
-        "tools": _ai_tools(),
-        "latest_date": S.featured,
-        "dates": (S.dates[0], S.dates[-1]),
+        "tools": _ai_tools(source),
+        "latest_date": reg.featured,
+        "dates": (reg.dates[0], reg.dates[-1]),
         "region": cfg.PILOT["name"],
-        "grid": {"rows": len(S.lats), "cols": len(S.lons), "res_deg": cfg.PILOT["res_deg"]},
+        "grid": {"rows": len(reg.lats), "cols": len(reg.lons), "res_deg": cfg.PILOT["res_deg"]},
         "max_horizon": cfg.MAX_HORIZON,
         "thresholds": {
             "heat_stress_tmax_c": cfg.HEAT_STRESS_TMAX_C,
             "sowing_onset_mm": cfg.SOWING_ONSET_MM,
             "wet_day_mm": cfg.RAIN_WET_DAY_MM,
         },
-        "models": list(S.forecasters),
+        "models": list(reg.forecasters),
     }
 
 
 @app.get("/ai")
-def ai(q: str = Query(..., min_length=1, description="natural-language question about the twin")):
+def ai(q: str = Query(..., min_length=1, description="natural-language question about the twin"),
+       source: str = Query("synthetic", description="regime: synthetic (default) or insat_real")):
     from backend import ai_engine
-    return ai_engine.answer(q, _ai_ctx())
+    return ai_engine.answer(q, _ai_ctx(source))
 
 
 @app.get("/brain")
 def brain(
     q: str = Query(..., min_length=1, description="natural-language decision question"),
     date: Optional[str] = Query(None, description="optional anchor date YYYY-MM-DD"),
+    source: str = Query("synthetic", description="regime: synthetic (default) or insat_real"),
 ):
     """The agentic brain: plan → execute real twin tools → critique → grounded answer.
 
@@ -1225,16 +1243,20 @@ def brain(
     """
     from backend import brain as brain_mod
 
-    question = q if not date else f"{q} on {_validate_date(date)}"
-    return brain_mod.run(question, _ai_ctx())
+    question = q if not date else f"{q} on {_validate_date(date, source)}"
+    return brain_mod.run(question, _ai_ctx(source))
 
 
 @app.get("/brain/anomaly")
-def brain_anomaly():
+def brain_anomaly(source: str = Query("synthetic", description="regime: synthetic (default) or insat_real")):
     """Autonomous scan: flag a recent heat/dryness anomaly vs TRAIN-years climatology."""
     from backend import brain as brain_mod
 
-    return brain_mod.anomaly_scan(S.cube)
+    reg = _regime(source)
+    # A focused regime (e.g. 2020-only insat_real) carries a DATE-based split in its
+    # norm_stats; pass it so the scan's train/test windows land on real timesteps instead
+    # of the synthetic year-based cfg.SPLIT (which selects zero rows here and crashes).
+    return brain_mod.anomaly_scan(reg.cube, split_dates=(reg.norm or {}).get("_split_dates"))
 
 
 @app.get("/guide")
@@ -1244,6 +1266,7 @@ def guide_ep(
     model: Optional[str] = Query(None, description="active model"),
     date: Optional[str] = Query(None, description="active date"),
     q: Optional[str] = Query(None, description="optional plain-language question"),
+    source: str = Query("synthetic", description="regime: synthetic (default) or insat_real"),
 ):
     """The always-on, context-aware GUIDE: explains the current screen simply for non-experts.
 
@@ -1254,7 +1277,7 @@ def guide_ep(
 
     screen = {"view": view, "variable": variable, "model": model,
               "date": date, "region": cfg.PILOT["name"]}
-    return guide_mod.guide(screen, _ai_ctx(), q)
+    return guide_mod.guide(screen, _ai_ctx(source), q)
 
 
 @app.get("/")
