@@ -220,6 +220,13 @@ scored on untouched test 2022–23.
 > by fitting rain climatology over the **multi-year** 2000–2018 train window so every day-of-year has support.
 
 ---
+> **Prerequisites**
+>
+> Before running the project locally, ensure you have the following installed:
+>
+> - Python 3.13+
+> - Node.js and npm
+> - Git
 
 ## ⚡ Quickstart
 
